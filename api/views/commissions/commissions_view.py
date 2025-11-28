@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from django.utils import timezone
 from api.models import Church,ChurchAdmin, ChurchCommission, Commission,Subscription,User
 from api.serializers import ChurchAdminSerializer, ChurchCommissionSerializer, ChurchCreateSerializer, CommissionSerializer, MemberSerializer,SubscriptionSerializer,ChurchSerializer, UserMeSerializer, UserSerializer
-from api.permissions import IsAuthenticatedUser, IsSuperAdmin, is_church_admin, user_is_church_admin
+from api.permissions import IsAuthenticatedUser, IsSuperAdmin, is_church_admin, user_is_church_admin, user_is_church_owner
 from rest_framework import status
 from django.db.models import Count
 
@@ -19,7 +19,7 @@ def create_commission(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+# @permission_classes([IsAuthenticatedUser, IsSuperAdmin])
 def list_commissions(request):
     commissions = Commission.objects.all()
     serializer = CommissionSerializer(commissions, many=True)
@@ -161,7 +161,7 @@ def remove_member_from_commission(request, church_id, commission_id, user_id):
     obj.delete()
     return Response({"detail": "Member removed"})
 
-@api_view(["PATCH"])
+@api_view(["POST"])
 @permission_classes([IsAuthenticatedUser])
 def update_member_role_in_commission(request, church_id, commission_id, user_id):
     church = get_object_or_404(Church, id=church_id)
@@ -193,6 +193,8 @@ def list_church_commissions_with_members(request, church_id):
     church = get_object_or_404(Church, id=church_id)
 
     # toutes les associations commission <-> church
+    if not user_is_church_owner(request.user, church):
+        return Response({"detail": "Permission denied"}, status=403)
     links = (
         ChurchCommission.objects
         .filter(church=church)
@@ -211,7 +213,7 @@ def list_church_commissions_with_members(request, church_id):
                 "commission": {
                     "id": link.commission.id,
                     "name": link.commission.name,
-                    "logo_url": link.commission.logo_url,
+                    "logo": link.commission.logo,
                 },
                 "members": []
             }

@@ -71,7 +71,7 @@ def update_category(request, category_id):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["DELETE"])
-@permission_classes([IsAuthenticatedUser])
+# @permission_classes([IsAuthenticatedUser])
 def delete_category(request, category_id):
     category = get_object_or_404(Category, id=category_id)
     category.delete()
@@ -150,7 +150,7 @@ def retrieve_content(request, content_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticatedUser])
+# @permission_classes([IsAuthenticatedUser])
 def create_content(request):
     # Only church admins/owner or SADMIN can create for other churches (we assume check)
     data = request.data.copy()

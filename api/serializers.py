@@ -110,7 +110,7 @@ class MemberSerializer(serializers.ModelSerializer):
 class CommissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Commission
-        fields = ["id", "name", "logo_url", "created_at"]
+        fields = ["id", "name","eng_name","logo","description"]
 
 class ChurchCommissionSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
@@ -124,7 +124,7 @@ class ChurchCommissionSerializer(serializers.ModelSerializer):
             "commission",
             "user",
             "role",
-            "created_at"
+          
         ]
 
     def get_user(self, obj):
@@ -139,7 +139,8 @@ class ChurchCommissionSerializer(serializers.ModelSerializer):
         return {
             "id": obj.commission.id,
             "name": obj.commission.name,
-            "logo_url": obj.commission.logo_url,
+            "eng_name": obj.commission.eng_name,
+            "logo": obj.commission.logo,
         }
 
 class AddMemberToCommissionSerializer(serializers.Serializer):
@@ -191,7 +192,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ["id", "type", "name", "slug"]
+        fields = ["id", "name", "slug"]
 
     def validate_name(self, value):
         if Category.objects.filter(name__iexact=value).exists():

@@ -2,15 +2,17 @@ from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.utils import timezone
-from api.models import Church,ChurchAdmin,Subscription,User
+from api.models import Church,ChurchAdmin, ChurchCommission, Deny,Subscription,User
 from api.serializers import ChurchAdminSerializer, OwnerSerializer,SubChurchCreateSerializer,ChurchCreateSerializer, MemberSerializer,SubscriptionSerializer,ChurchSerializer, UserMeSerializer, UserSerializer
-from api.permissions import IsAuthenticatedUser, IsSuperAdmin
+from api.permissions import IsAuthenticatedUser, IsSuperAdmin, user_is_church_admin, user_is_church_owner
 from rest_framework import status
 from django.db.models import Count
 from django.db.models import Q
 from api.services.notify import create_and_send_whatsapp_notification
 from django.utils.text import slugify
+from django.db import transaction
 
+from api.utils import can_join_church
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticatedUser])
@@ -131,6 +133,11 @@ def add_church_admin(request, church_id):
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return Response({"error":"user not found"}, status=404)
+    if user.current_church_id != church.id:
+        return Response(
+            {"error": "User must join the church before receiving a role."},
+            status=400
+        )
     ca, created = ChurchAdmin.objects.get_or_create(church=church, user=user, defaults={"role":role})
     if not created:
         ca.role = role
@@ -171,12 +178,7 @@ def update_church(request, church_id):
 
     return Response(serializer.errors, status=400)
 
-@api_view(["DELETE"])
-@permission_classes([IsSuperAdmin])
-def delete_church(request, church_id):
-    church = get_object_or_404(Church, id=church_id)
-    church.delete()
-    return Response({"detail": "Church deleted successfully"})
+
 
 @api_view(["PUT", "PATCH"])
 @permission_classes([IsAuthenticatedUser])
@@ -213,11 +215,10 @@ def list_owners(request):
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticatedUser])
-def delete_church_by_owner(request, church_id):
+def delete_church(request, church_id):
     church = get_object_or_404(Church, id=church_id)
 
-    # Vérification du owner
-    if request.user != church.owner:
+    if not user_is_church_owner(request.user, church):
         return Response(
             {"detail": "You are not allowed to delete this church."},
             status=403
@@ -268,7 +269,7 @@ def me(request):
 @permission_classes([IsAuthenticatedUser])
 def churches_metrics(request):
     user = request.user
-    if user.role != "SADMIN":
+    if not user.role != "SADMIN":
         return Response({"detail": "Unauthorized"}, status=403)
 
     total_churches = Church.objects.count()
@@ -288,9 +289,9 @@ def churches_metrics(request):
 
     top_churches = (
         Church.objects
-        .annotate(members=Count("members"))
-        .order_by("-members")[:10]
-        .values("id", "title", "members")
+        .annotate(members_c=Count("members"))
+        .order_by("-members_c")[:10]
+        .values("id", "title", "members_c")
     )
 
     return Response({
@@ -311,32 +312,185 @@ def get_current_user(request):
     serializer = UserMeSerializer(request.user)
     return Response(serializer.data)
 
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def filter_church_members(request, church_id):
-    role = request.GET.get("role")
+    # Paramètres
+    admin_role = request.GET.get("admin_role")
+    commission_role = request.GET.get("commission_role")
     commission_id = request.GET.get("commission_id")
     search = request.GET.get("search")
 
+    # Tous les membres de l’église
     qs = User.objects.filter(current_church_id=church_id)
 
+    # Recherche nom / téléphone
     if search:
         qs = qs.filter(
-            Q(name__icontains=search)
-            | Q(phone_number__icontains=search)
+            Q(name__icontains=search) |
+            Q(phone_number__icontains=search)
         )
 
-    if role:
+    # Filtre par rôle ChurchAdmin
+    # → related_name = "church_roles"
+    if admin_role:
         qs = qs.filter(
-            church_commissions__church_id=church_id,
-            church_commissions__role=role
+            church_roles__church_id=church_id,
+            church_roles__role=admin_role
         ).distinct()
 
-    if commission_id:
-        qs = qs.filter(
-            church_commissions__church_id=church_id,
-            church_commissions__commission_id=commission_id
-        ).distinct()
+    # Filtre par rôle Commission
+    # → related_name = "church_commissions"
+    if commission_role or commission_id:
+        commission_filter = Q(church_commissions__church_id=church_id)
+
+        if commission_role:
+            commission_filter &= Q(church_commissions__role=commission_role)
+
+        if commission_id:
+            commission_filter &= Q(church_commissions__commission_id=commission_id)
+
+        qs = qs.filter(commission_filter).distinct()
 
     return Response(UserMeSerializer(qs, many=True).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedUser])
+def join_church(request, church_code):
+    church = get_object_or_404(Church, code=church_code)
+    user = request.user
+    can_join, msg = can_join_church(user, church)
+    if not can_join:
+        return Response({"detail": msg}, status=403)
+    # Déjà membre ?
+    if user.current_church_id == church.id:
+        return Response({"detail": "You are already a member of this church."}, status=400)
+
+    # Lier l'utilisateur à l'église via current_church
+    user.current_church = church
+    user.save(update_fields=["current_church"])
+
+    return Response({
+        "detail": "You joined the church.",
+        "church_code": church.code
+    })
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedUser])
+def leave_church(request, church_id):
+    church = get_object_or_404(Church, id=church_id)
+    user = request.user
+
+    # Vérifier qu'il est membre
+    if user.current_church_id != church.id:
+        return Response({"detail": "You are not a member of this church."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Récupérer l'entrée ChurchAdmin (si existe)
+    membership = ChurchAdmin.objects.filter(church=church, user=user).first()
+
+    # Si l'utilisateur n'a pas de rôle ChurchAdmin -> simple départ
+    if membership is None:
+        user.current_church = None
+        user.save(update_fields=["current_church", "updated_at"])
+        return Response({"detail": "You have left the church."})
+
+    # Si ce n'est pas un OWNER -> on peut partir normalement
+    if membership.role != "OWNER":
+        with transaction.atomic():
+            # supprimer tout rôle éventuel (admin/mod)
+            ChurchAdmin.objects.filter(church=church, user=user).delete()
+            user.current_church = None
+            user.save(update_fields=["current_church", "updated_at"])
+        return Response({"detail": "You have left the church."})
+
+    # C'est un OWNER -> vérifier s'il existe d'autres owners
+    owners_count = ChurchAdmin.objects.filter(church=church, role="OWNER").exclude(user=user).count()
+
+    if owners_count < 1:
+        # aucun autre owner — on empêche le départ pour éviter église sans owner
+        return Response(
+            {"detail": "Cannot leave: you are the only owner. Transfer ownership before leaving."},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Il y a au moins un autre owner -> autoriser le départ
+    with transaction.atomic():
+        # supprimer tous les rôles pour cet utilisateur sur cette église
+        ChurchAdmin.objects.filter(church=church, user=user).delete()
+        # détacher current_church
+        user.current_church = None
+        user.save(update_fields=["current_church", "updated_at"])
+
+    return Response({"detail": "Owner left the church (another owner exists)."})
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedUser])
+def deny_user(request, church_id, user_id):
+    church = get_object_or_404(Church, id=church_id)
+    user = request.user  # l'admin qui fait l'action
+
+    # Vérifier si admin ou owner
+    if not ChurchAdmin.objects.filter(church=church, user=user, role__in=["OWNER", "ADMIN"]).exists() and user.role != "SADMIN":
+        return Response({"detail": "Not allowed."}, status=403)
+
+    target_user = get_object_or_404(User, id=user_id)
+
+    # Supprimer du current_church si nécessaire
+    if target_user.current_church_id == church.id:
+        target_user.current_church = None
+        target_user.save()
+
+    # Supprimer les rôles admin/modérateur
+    ChurchAdmin.objects.filter(church=church, user=target_user).delete()
+
+    # Créer l'entrée Deny
+    deny, created = Deny.objects.get_or_create(user=target_user, church=church, defaults={"reason": request.data.get("reason", "")})
+    if not created:
+        deny.reason = request.data.get("reason", "")
+        deny.save()
+
+    return Response({"detail": f"{target_user.phone_number} has been banned from {church.title}."})
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedUser])
+def unban_user(request, church_id, user_id):
+    """
+    Débannir un utilisateur d'une église.
+    Seuls les admins/owners de l'église ou SADMIN peuvent le faire.
+    """
+    church = get_object_or_404(Church, id=church_id)
+    admin_user = request.user
+
+    # Vérifier si admin ou owner
+    if not ChurchAdmin.objects.filter(church=church, user=admin_user, role__in=["OWNER", "ADMIN"]).exists() and admin_user.role != "SADMIN":
+        return Response({"detail": "Not allowed."}, status=403)
+
+    # Récupérer l'utilisateur à débannir
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    target_user = get_object_or_404(User, id=user_id)
+
+    # Supprimer l'entrée Deny
+    Deny.objects.filter(user=target_user, church=church).delete()
+
+    return Response({"detail": f"{target_user.phone_number} has been unbanned from {church.title}."})
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedUser])
+def leave_commission(request, church_id, commission_id):
+    user = request.user
+
+    # Vérifier si l'utilisateur appartient à la bonne église
+    print(church_id)
+    if str(user.current_church_id) != str(church_id):
+        return Response({"detail": "Vous n'appartenez pas à cette église."}, status=400)
+
+    # Supprimer le lien dans les commissions
+    deleted, _ = ChurchCommission.objects.filter(
+        user=user,
+        church_id=church_id,
+        commission_id=commission_id
+    ).delete()
+
+    if deleted == 0:
+        return Response({"detail": "Vous ne faites pas partie de cette commission."}, status=404)
+
+    return Response({"detail": "Vous avez quitté la commission avec succès."})

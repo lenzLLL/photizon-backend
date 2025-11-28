@@ -24,3 +24,15 @@ def is_church_admin(user, church):
 def user_is_church_admin(user, church):
     return user.role == "SADMIN" or \
            ChurchAdmin.objects.filter(church=church, user=user).exists()
+
+def user_is_church_owner(user, church):
+    # SuperAdmin a toujours accès
+    if user.role == "SADMIN":
+        return True
+
+    # Vérifier si l'utilisateur est OWNER dans ChurchAdmin
+    return ChurchAdmin.objects.filter(
+        user=user,
+        church=church,
+        role__in=["OWNER"]
+    ).exists()

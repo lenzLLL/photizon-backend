@@ -247,15 +247,6 @@ class Comment(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 class Category(models.Model):
-    TYPE_CHOICES = [
-        ("ARTICLE", "Article"),
-        ("AUDIO", "Audio"),
-        ("EVENT", "Event"),
-        ("VIDEO", "Video"),
-        ("POST", "Short"),
-        ("BOOK","Book")
-    ]
-    type = models.CharField(max_length=20, choices=TYPE_CHOICES, db_index=True)
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(unique=True)
 
@@ -365,6 +356,7 @@ class Notification(models.Model):
 
 class Commission(models.Model):
     name = models.CharField(max_length=255, unique=True)
+    eng_name = models.CharField(max_length=255, unique=True,default="")
     logo = models.URLField(null=True, blank=True)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -392,3 +384,15 @@ class ChurchCommission(models.Model):
 
     def __str__(self):
         return f"{self.user.phone_number} → {self.commission.name} @ {self.church.title}"
+
+class Deny(models.Model):
+    church = models.ForeignKey("Church", on_delete=models.CASCADE, related_name="denied_members")
+    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="denied_in_churches")
+    reason = models.TextField(blank=True)
+    denied_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("church", "user")
+
+    def __str__(self):
+        return f"{self.user.phone_number} denied from {self.church.title}"
