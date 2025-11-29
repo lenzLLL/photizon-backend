@@ -2,9 +2,9 @@ from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
-from django.db.models import Q
+from django.db.models import Q,F, Count
 from django.utils.text import slugify
-from api.permissions import IsAuthenticatedUser, IsSuperAdmin
+from api.permissions import IsAuthenticatedUser, IsSuperAdmin, user_is_church_admin
 from api.serializers import CategorySerializer, CommentSerializer, ContentCreateUpdateSerializer, ContentDetailSerializer, ContentListSerializer, PlaylistItemSerializer, PlaylistSerializer, TagSerializer
 # imports communs pour serializers + views
 from django.db.models import Count, Q
@@ -15,7 +15,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
-
+from django.db import models
+import random
 # tes modèles (adaptés à ton projet)
 from api.models import (
     ChurchAdmin, Content, Category, Tag, ContentTag, Playlist, PlaylistItem,
@@ -150,12 +151,22 @@ def retrieve_content(request, content_id):
 
 
 @api_view(["POST"])
-# @permission_classes([IsAuthenticatedUser])
-def create_content(request):
+@permission_classes([IsAuthenticatedUser])
+def create_content(request,church_id):
+    church = get_object_or_404(Church, id=church_id)
     # Only church admins/owner or SADMIN can create for other churches (we assume check)
+    if not user_is_church_admin(request.user, church):
+        return Response({"detail":"Forbidden"}, status=403)
     data = request.data.copy()
     # created_by set to request.user
     data["created_by"] = request.user.id
+    data["church"] = church.id
+    category_value = request.data.get("category")
+    if category_value:
+        category = get_object_or_404(Category, id=category_value)
+        data["category"] = category.id
+    if not data.get("slug"):
+        data["slug"] = slugify(data["title"])
     serializer = ContentCreateUpdateSerializer(data=data)
     if serializer.is_valid():
         content = serializer.save()
@@ -199,19 +210,21 @@ def delete_content(request, content_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticatedUser])
-def like_content(request, content_id):
+def toggle_like_content(request, content_id):
     content = get_object_or_404(Content, id=content_id)
-    obj, created = ContentLike.objects.get_or_create(user=request.user, content=content)
-    if created:
-        return Response({"liked": True})
-    return Response({"liked": True, "note":"already liked"})
+    like_qs = ContentLike.objects.filter(user=request.user, content=content)
+    
+    if like_qs.exists():
+        # Supprimer le like existant
+        like_qs.delete()
+        return Response({"liked": False, "note": "like removed"})
+    else:
+        # Créer un nouveau like
+        ContentLike.objects.create(user=request.user, content=content)
+        return Response({"liked": True, "note": "like added"})
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticatedUser])
-def unlike_content(request, content_id):
-    content = get_object_or_404(Content, id=content_id)
-    ContentLike.objects.filter(user=request.user, content=content).delete()
-    return Response({"liked": False})
+
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticatedUser])
@@ -265,12 +278,44 @@ def create_tag(request):
     tag, created = Tag.objects.get_or_create(name=name, defaults={"slug": name.lower().replace(" ","-")})
     return Response(TagSerializer(tag).data, status=201 if created else 200)
 
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticatedUser])
+def update_tag(request, tag_id):
+    # Vérifie que l'utilisateur est SADMIN
+    data = request.data.copy()
+    if request.user.role != "SADMIN":
+        return Response({"detail": "Forbidden"}, status=403)
+    
+    tag = get_object_or_404(Tag, id=tag_id)
+    if "name" in data:
+        data["slug"] = slugify(data["name"])
+    serializer = TagSerializer(tag, data=data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=400)
 
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticatedUser])
+def delete_tag(request, tag_id):
+    if request.user.role != "SADMIN":
+        return Response({"detail": "Forbidden"}, status=403)
+    
+    tag = get_object_or_404(Tag, id=tag_id)
+    tag.delete()
+    return Response({"detail": "Tag deleted"}, status=204)
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticatedUser])
 def create_playlist(request):
-    serializer = PlaylistSerializer(data=request.data)
+    data = request.data.copy()
+    church_id = request.data.get("church_id")
+    if not church_id:
+        return Response({"detail": "church_id is required"}, status=400)
+
+    # Injecte l'ID de l'église dans les données du serializer
+    data["church"] = church_id
+    serializer = PlaylistSerializer(data=data)
     if serializer.is_valid():
         pl = serializer.save()
         return Response(PlaylistSerializer(pl).data, status=201)
@@ -282,40 +327,93 @@ def add_to_playlist(request, playlist_id):
     playlist = get_object_or_404(Playlist, id=playlist_id)
     content_id = request.data.get("content_id")
     pos = request.data.get("position", 0)
+
+    if not content_id:
+        return Response({"detail": "content_id is required"}, status=400)
+
     content = get_object_or_404(Content, id=content_id)
-    item = PlaylistItem.objects.create(playlist=playlist, content=content, position=pos)
+
+    # Vérifie si le contenu est déjà dans la playlist
+    item, created = PlaylistItem.objects.get_or_create(
+        playlist=playlist,
+        content=content,
+        defaults={"position": pos}
+    )
+
+    if not created:
+        return Response({"detail": "This content is already in the playlist"}, status=400)
+
     return Response(PlaylistItemSerializer(item).data, status=201)
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticatedUser])
 def reorder_playlist_item(request, item_id):
+    # Récupère l'item
     item = get_object_or_404(PlaylistItem, id=item_id)
-    new_pos = int(request.data.get("position", item.position))
-    item.position = new_pos
-    item.save()
+    playlist = item.playlist
+
+    # Récupère le nouveau rang demandé
+    try:
+        new_pos = int(request.data.get("position", item.position))
+    except (TypeError, ValueError):
+        return Response({"detail": "Invalid position"}, status=400)
+
+    # Limite la position dans la plage valide
+    playlist_items = list(PlaylistItem.objects.filter(playlist=playlist).order_by("position"))
+    max_index = len(playlist_items) - 1
+    new_pos = max(0, min(new_pos, max_index))
+
+    # Supprime l'item de sa position actuelle
+    playlist_items.remove(item)
+    # Insère l'item à la nouvelle position
+    playlist_items.insert(new_pos, item)
+
+    # Réattribue les positions pour éviter les doublons
+    for index, it in enumerate(playlist_items):
+        if it.position != index:
+            it.position = index
+            it.save(update_fields=["position"])
+
     return Response(PlaylistItemSerializer(item).data)
+
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
-def trending_content(request):
-    # trending by views + likes (simple score)
-    qs = Content.objects.annotate(
-        likes=Count("contentlike"),
-        views=Count("contentview")
-    ).annotate(
-        score=Count("contentview") + Count("contentlike")*2
-    ).order_by("-score")[:20]
+def trending_content(request, church_id):
+    qs = (
+        Content.objects.filter(church_id=church_id)
+        .annotate(
+            likes_count=Count("contentlike", distinct=True),
+            views_count=Count("contentview", distinct=True),
+        )
+        .annotate(
+            score=F("views_count") + F("likes_count") * 2
+        )
+        .order_by("-score")[:20]
+    )
+
     serializer = ContentListSerializer(qs, many=True)
     return Response(serializer.data)
 
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
-def recommend_for_user(request):
-    # simple tag-based recommendations: pick user last viewed content tags and recommend similar content
-    last_views = ContentView.objects.filter(user=request.user).order_by("-viewed_at")[:10]
-    tag_ids = ContentTag.objects.filter(content__in=[v.content for v in last_views]).values_list("tag_id", flat=True)
-    qs = Content.objects.filter(contenttag__tag_id__in=tag_ids).exclude(id__in=[v.content_id for v in last_views]).distinct()[:20]
+def recommend_for_user(request,church_id):
+    # Récupérer les 10 derniers contenus vus par l'utilisateur
+    last_views_qs = ContentView.objects.filter(user=request.user,id=church_id).order_by("-viewed_at")[:10]
+    last_content_ids = last_views_qs.values_list("content_id", flat=True)
+
+    # Récupérer les tags associés à ces contenus
+    tag_ids = ContentTag.objects.filter(content_id__in=last_content_ids).values_list("tag_id", flat=True)
+
+    # Recommander des contenus ayant ces tags mais que l'utilisateur n'a pas encore vus
+    qs = (
+        Content.objects.filter(contenttag__tag_id__in=tag_ids)
+        .exclude(id__in=last_content_ids)
+        .distinct()[:20]
+    )
+
     serializer = ContentListSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -323,27 +421,28 @@ def recommend_for_user(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def feed_for_church(request, church_id):
-    # Latest content
+    # Derniers contenus
     latest = list(
-        Content.objects
-        .filter(church_id=church_id)
+        Content.objects.filter(church_id=church_id)
         .order_by("-created_at")[:30]
     )
 
     # IDs déjà utilisés
     used_ids = {c.id for c in latest}
 
-    # Trending content, sans ceux déjà dans latest
+    # Trending content (par vues), sans doublons
     trending = list(
-        Content.objects
-        .filter(church_id=church_id)
+        Content.objects.filter(church_id=church_id)
         .exclude(id__in=used_ids)
         .annotate(views=Count("contentview"))
         .order_by("-views")[:10]
     )
 
-    # Combine proprement
+    # Combine latest + trending
     items = latest + trending
+
+    # Mélange aléatoire
+    random.shuffle(items)
 
     serializer = ContentListSerializer(items, many=True)
     return Response(serializer.data)
@@ -379,7 +478,7 @@ def content_stats_for_church(request, church_id):
     })
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+@permission_classes([IsAuthenticatedUser])
 def list_all_playlists(request):
     qs = (
         Playlist.objects
@@ -395,4 +494,11 @@ def list_all_playlists(request):
        qs = qs.filter(church_id=church_id)
 
     serializer = PlaylistSerializer(qs, many=True)
+    return Response(serializer.data)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedUser])
+def get_playlist_with_items(request, playlist_id):
+    playlist = get_object_or_404(Playlist, id=playlist_id)
+    serializer = PlaylistSerializer(playlist)
     return Response(serializer.data)

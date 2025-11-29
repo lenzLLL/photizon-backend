@@ -1,9 +1,13 @@
 from django.urls import path
 from api.views.commissions.commissions_view import add_member_to_commission, church_commissions_summary, create_commission, delete_commission, list_church_commission_members, list_church_commissions, list_church_commissions_with_members, list_commissions, remove_member_from_commission, update_commission, update_member_role_in_commission
-from api.views.contents.contents_view import add_comment, add_to_playlist, content_stats_for_church, content_stats_global, create_category, create_content, create_playlist, create_tag, delete_category, delete_comment, delete_content, feed_for_church, get_category, like_content, list_all_playlists, list_categories, list_comments, list_content, list_tags, recommend_for_user, reorder_playlist_item, retrieve_content, trending_content, unlike_content, update_category, update_content, view_content
-from .views.auth.auth_views import change_subscription_plan, check_subscription_status, create_subscription, delete_subscription, get_church_subscription, list_all_subscriptions, renew_subscription, send_otp_view, toggle_subscription_status, update_subscription, verify_otp_view
+from api.views.contents.contents_view import add_comment, add_to_playlist, content_stats_for_church, content_stats_global, create_category, create_content, create_playlist, create_tag, delete_category, delete_comment, delete_content, delete_tag, feed_for_church, get_category, get_playlist_with_items,list_all_playlists, list_categories, list_comments, list_content, list_tags, recommend_for_user, reorder_playlist_item, retrieve_content, toggle_like_content, trending_content, update_category, update_content, update_tag, view_content
+from .views.auth.auth_views import change_subscription_plan, check_subscription_status, delete_subscription, get_church_subscription, list_subscriptions, renew_subscription, send_otp_view, toggle_subscription_status, update_subscription, verify_otp_view
 from .views.crud.crud_views import churches_metrics,create_subchurch_view, deny_user,filter_church_members,get_current_user, join_church, leave_church, leave_commission, unban_user,update_church_by_owner,list_owners,list_users,delete_church,update_church,delete_self,update_self,delete_self,list_churches,create_church_view,list_my_churches,verify_church_view,add_church_admin,list_sub_churches
-
+from .views.gifts.gifts_view import (
+    admin_book_order_stats, book_order_detail,church_financial_overview, create_book_order, list_categories_d, create_category_d, retrieve_category_d, update_category_d, delete_category_d,
+    make_donation, list_user_donations, list_church_donations,
+    church_donation_stats, admin_all_churches_donation_stats, user_book_orders, withdraw_all_donations_view, withdraw_all_orders_view
+)
 urlpatterns = [
     path("auth/send-otp/", send_otp_view),
     path("auth/verify-otp/", verify_otp_view),
@@ -63,28 +67,30 @@ urlpatterns = [
     path("church/<str:church_id>/members/", filter_church_members),
     path("categories/", list_categories),
     path("categories/create/", create_category),
-    path("categories/<int:category_id>/", get_category),
-    path("categories/<int:category_id>/update/", update_category),
-    path("categories/<int:category_id>/delete/", delete_category),
+    path("categories/<str:category_id>/", get_category),
+    path("categories/<str:category_id>/update/", update_category),
+    path("categories/<str:category_id>/delete/", delete_category),
     path("contents/", list_content),
-    path("contents/<int:content_id>/", retrieve_content),
-    path("contents/create/", create_content),
-    path("contents/<int:content_id>/update/", update_content),
-    path("contents/<int:content_id>/delete/", delete_content),
-    path("contents/<int:content_id>/like/", like_content),
-    path("contents/<int:content_id>/unlike/", unlike_content),
-    path("contents/<int:content_id>/view/", view_content),
-    path("contents/<int:content_id>/comments/", list_comments),
-    path("contents/<int:content_id>/comments/add/", add_comment),
+    path("contents/<str:content_id>/", retrieve_content),
+    path("contents/<str:church_id>/add/", create_content,name="create_content"),
+    path("contents/<str:content_id>/update/", update_content),
+    path("contents/<str:content_id>/delete/", delete_content),
+    path("contents/<str:content_id>/toggle_like/", toggle_like_content),
+    path("contents/<str:content_id>/view/", view_content),
+    path("contents/<str:content_id>/comments/", list_comments),
+    path("contents/<str:content_id>/comments/add/", add_comment),
     path("comments/<int:comment_id>/delete/", delete_comment),
+    path("tags/<str:tag_id>/update/", update_tag),
     path("tags/", list_tags),
+    path("tags/<str:tag_id>/delete/", delete_tag),
     path("tags/create/", create_tag),
     path("playlists/create/", create_playlist),
-    path("playlists/<int:playlist_id>/add/", add_to_playlist),
-    path("playlist-items/<int:item_id>/reorder/", reorder_playlist_item),
+    path("playlists/<str:playlist_id>/", get_playlist_with_items),
+    path("playlists/<str:playlist_id>/add/", add_to_playlist),
+    path("playlist-items/<str:item_id>/reorder/", reorder_playlist_item),
     path("playlist/", list_all_playlists, name="playlist-list"),
-    path("trending/", trending_content),
-    path("recommend/", recommend_for_user),
+    path("trending/<str:church_id>/", trending_content),
+    path("recommend/<str:church_id>/", recommend_for_user),
     path("feed/church/<str:church_id>/", feed_for_church),
     path("stats/contents/", content_stats_global),
     path("stats/contents/church/<str:church_id>/", content_stats_for_church),
@@ -95,7 +101,24 @@ urlpatterns = [
     path("subscription/<str:church_id>/change-plan/", change_subscription_plan),
     path("subscription/<str:church_id>/toggle/", toggle_subscription_status),
     path("subscription/<str:church_id>/renew/", renew_subscription),
-    path("subscriptions/create/", create_subscription),
-    path("subscriptions/all/", list_all_subscriptions),
+    path("subscriptions/", list_subscriptions),
+    path("donation-categories/list/", list_categories_d),
+    path("donation-categories/create/", create_category_d),
+    path("donation-categories/<str:category_id>/", retrieve_category_d),
+    path("donation-categories/<str:category_id>/update/", update_category_d),
+    path("donation-categories/<str:category_id>/delete/", delete_category_d),
+    path("church/<str:church_id>/donate/", make_donation),
+    path("my-donations/", list_user_donations),
+    path("church/<str:church_id>/donations/", list_church_donations),
+    path("church/<str:church_id>/donation-stats/", church_donation_stats),
+    path("admin/donations-stats/", admin_all_churches_donation_stats),
+    path("books/<str:book_id>/order/", create_book_order, name="create-book-order"),
+    path("books/orders/", user_book_orders, name="user-book-orders"),
+    path("books/orders/<str:order_id>/", book_order_detail, name="book-order-detail"),
+    path("admin/book-orders/stats/", admin_book_order_stats, name="admin-book-order-stats"),
+    path("church/<str:church_id>/withdrawed/",church_financial_overview, name="church_gift"),
+    path("church/<int:church_id>/withdraw-all-donations/", withdraw_all_donations_view),
+    path("church/<int:church_id>/withdraw-all-orders/", withdraw_all_orders_view)
+
 ]
 # eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY0MTE3OTU3LCJpYXQiOjE3NjM1MTMxNTcsImp0aSI6IjQ0OTgyZDY2MWQzNTQxYmQ5YzlmOWY1NmVkZmVjMWE2IiwidXNlcl9pZCI6IjEifQ.eQVbvH6UMV2Ir8Y-AIIwcfetTXz3tngQi60xARO6LpM

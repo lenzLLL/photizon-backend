@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import Comment, Content,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category
+from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category
 from django.utils.text import slugify
 
 class UserSerializer(serializers.ModelSerializer):
@@ -253,36 +253,61 @@ class ContentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Content
         exclude = ["created_at", "updated_at"]
-        read_only_fields = ["slug"]
 
 class CommentSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
+    content = serializers.SerializerMethodField()
     class Meta:
         model = Comment
         fields = ["id","user","content","text","created_at"]
 
     def get_user(self, obj):
         return {"id": obj.user.id, "name": obj.user.name, "phone": obj.user.phone_number}
-
+    def get_content(self, obj):
+        return {"id": obj.content.id, "title": obj.content.title, "slug": obj.content.slug}
 class LikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContentLike
         fields = ["id","user","content","liked_at"]
+class ContentNestedSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Content
+        fields = ["id", "title", "slug", "type", "cover_image_url"]
 
 class ViewSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContentView
         fields = ["id","user","content","viewed_at"]
+class PlaylistItemNestedSerializer(serializers.ModelSerializer):
+    content = ContentNestedSerializer()  # inclut les infos du content
 
-class PlaylistSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Playlist
-        fields = ["id","church","title","description","cover_image_url","created_at"]
-
-class PlaylistItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlaylistItem
-        fields = ["id","playlist","content","position"]
+        fields = ["id", "content", "position"]
+class PlaylistSerializer(serializers.ModelSerializer):
+    items = PlaylistItemNestedSerializer(source="playlistitem_set", many=True, read_only=True)
+    church = serializers.SerializerMethodField()
+    class Meta:
+        model = Playlist
+        fields = ["id", "church", "title", "description", "cover_image_url", "items"]
+    def get_church(self, obj):
+        return {
+            "id": obj.church.id,
+            "title": obj.church.title,
+            "code": obj.church.code
+        }
+class ContentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Content
+        fields = ["id", "title", "slug", "type", "cover_image_url"] 
+
+class PlaylistItemSerializer(serializers.ModelSerializer):
+    content = ContentSerializer(read_only=True)
+    playlist = PlaylistSerializer(read_only=True)
+
+    class Meta:
+        model = PlaylistItem
+        fields = ["id", "playlist", "content", "position"]
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     church = serializers.SerializerMethodField()
@@ -323,3 +348,73 @@ class OwnerSerializer(serializers.ModelSerializer):
         churches = [entry.church for entry in admin_entries]
 
         return ChurchSerializer(churches, many=True).data
+
+class DonationCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DonationCategory
+        fields = ["id", "name", "description"]
+
+class DonationSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+    church = serializers.SerializerMethodField()
+    category = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Donation
+        fields = [
+            "id", "user", "church", "category",
+            "amount", "currency", "gateway", "gateway_transaction_id",
+             "message", "metadata","withdrawed"
+            
+        ]
+
+    def get_user(self, obj):
+        return {
+            "id": obj.user.id,
+            "phone_number": obj.user.phone_number,
+            "name": obj.user.name
+        }
+
+    def get_church(self, obj):
+        return {
+            "id": obj.church.id,
+            "title": obj.church.title,
+            "code": obj.church.code
+        }
+
+    def get_category(self, obj):
+        if obj.category:
+            return {
+                "id": obj.category.id,
+                "name": obj.category.name
+            }
+        return None
+    
+class BookOrderSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+    content = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BookOrder
+        fields = [
+            "id", "user", "content", "delivery_type", "quantity", 
+            "total_price", "payment_gateway", "payment_transaction_id", 
+            "shipped", "delivered_at", "created_at","withdrawed"
+        ]
+    
+    def get_user(self, obj):
+        return {
+            "id": obj.user.id,
+            "phone_number": obj.user.phone_number,
+            "name": obj.user.name
+        }
+
+    def get_content(self, obj):
+        return {
+            "id": obj.content.id,
+            "title": obj.content.title,
+            "type": obj.content.type,
+            "price": obj.content.price,
+            "church_id": obj.content.church.id,
+            "church_title": obj.content.church.title
+        }

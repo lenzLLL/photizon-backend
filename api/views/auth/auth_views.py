@@ -121,24 +121,41 @@ def create_subscription(request):
 
     return Response(SubscriptionSerializer(sub).data, status=201)
 
+
 @api_view(["PUT", "PATCH"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+@permission_classes([IsAuthenticatedUser])
 def update_subscription(request, church_id):
     church = get_object_or_404(Church, id=church_id)
-    sub = getattr(church, "subscription", None)
 
-    if not sub:
-        return Response({"detail": "No subscription"}, status=404)
+    # Vérifier si la subscription existe ou la créer
+    sub, created = Subscription.objects.get_or_create(
+        church=church,
+        defaults={
+            "expires_at": timezone.now() + timedelta(days=30)
+        }
+    )
 
-    serializer = SubscriptionSerializer(sub, data=request.data, partial=True)
+    # Si l'utilisateur n'envoie pas expires_at → définir une valeur par défaut
+    data = request.data.copy()
+
+    if "expires_at" not in data or not data.get("expires_at"):
+        # seulement si c'est une mise à jour partielle
+        if not sub.expires_at:
+            data["expires_at"] = (timezone.now() + timedelta(days=30)).isoformat()
+
+    serializer = SubscriptionSerializer(sub, data=data, partial=True)
+
     if serializer.is_valid():
         serializer.save()
-        return Response(serializer.data)
+        return Response({
+            "created": created,      # True = subscription auto-créée
+            "subscription": serializer.data
+        })
 
     return Response(serializer.errors, status=400)
 
 @api_view(["DELETE"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+@permission_classes([IsAuthenticatedUser])
 def delete_subscription(request, church_id):
     church = get_object_or_404(Church, id=church_id)
     sub = getattr(church, "subscription", None)
@@ -150,22 +167,30 @@ def delete_subscription(request, church_id):
     return Response({"detail": "Subscription deleted"})
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+@permission_classes([IsAuthenticatedUser])
 def change_subscription_plan(request, church_id):
     plan = request.data.get("plan")
-    if plan not in ["FREE", "STARTER", "PRO", "ENTERPRISE"]:
+    if plan not in ["FREE", "STARTER", "PRO", "PREMUIM"]:
         return Response({"error": "Invalid plan"}, status=400)
 
     church = get_object_or_404(Church, id=church_id)
     sub = church.subscription
 
+    # Mettre à jour le plan
     sub.plan = plan
+
+    # Mettre à jour expire_at => maintenant + 1 mois
+    sub.expire_at = timezone.now() + timedelta(days=30)
+
     sub.save()
 
-    return Response({"detail": f"Plan updated to {plan}"})
+    return Response({
+        "detail": f"Plan updated to {plan}",
+        "expire_at": sub.expire_at
+    })
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+@permission_classes([IsAuthenticatedUser])
 def toggle_subscription_status(request, church_id):
     church = get_object_or_404(Church, id=church_id)
     sub = church.subscription
@@ -176,7 +201,7 @@ def toggle_subscription_status(request, church_id):
     return Response({"active": sub.is_active})
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
+@permission_classes([IsAuthenticatedUser])
 def renew_subscription(request, church_id):
     months = int(request.data.get("months", 1))
     church = get_object_or_404(Church, id=church_id)
@@ -214,10 +239,8 @@ def check_subscription_status(request, church_id):
         "status": status_value,
         "expires_at": sub.expires_at
     })
-
 @api_view(["GET"])
-@permission_classes([IsAuthenticatedUser, IsSuperAdmin])
-def list_all_subscriptions(request):
+@permission_classes([IsAuthenticatedUser])
+def list_subscriptions(request):
     qs = Subscription.objects.select_related("church").order_by("-started_at")
-    serializer = SubscriptionSerializer(qs, many=True)
-    return Response(serializer.data)
+    return Response(SubscriptionSerializer(qs, many=True).data)

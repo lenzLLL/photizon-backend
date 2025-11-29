@@ -174,20 +174,25 @@ class Content(models.Model):
         ("POST", "Short"),
         ("BOOK","Book")
     ]
+    DELIVERY_CHOICES = [
+        ("DIGITAL", "Numérique"),
+        ("PHYSICAL", "Physique"),
+    ]
 
     church = models.ForeignKey("Church", on_delete=models.CASCADE)
-
+    delivery_type = models.CharField(max_length=20, choices=DELIVERY_CHOICES, default="DIGITAL")
+    
     type = models.CharField(max_length=20, choices=TYPE_CHOICES, db_index=True)
 
     title = models.CharField(max_length=250)
-    slug = models.SlugField(unique=True)
+    slug = models.SlugField()
     description = models.TextField(blank=True)
     cover_image_url = models.URLField(blank=True, null=True)
 
     # For media (optional fields depending on type)
     audio_url = models.URLField(blank=True, null=True)
     video_url = models.URLField(blank=True, null=True)
-    file = models.FileField(upload_to="church_documents/")
+    file = models.URLField(blank=True, null=True)
 
     # Event-specific fields
     start_at = models.DateTimeField(null=True, blank=True)
@@ -209,6 +214,8 @@ class Content(models.Model):
 
     def __str__(self):
         return f"{self.type} - {self.title}"
+  
+
 
 class Tag(models.Model):
     name = models.CharField(max_length=50, unique=True)
@@ -294,7 +301,7 @@ class Subscription(models.Model):
         ("FREE", "Free"),
         ("STARTER", "Starter"),
         ("PRO", "Pro"),
-        ("ENTERPRISE", "Enterprise"),
+        ("PREMUIM", "Premium"),
     ]
 
     church = models.OneToOneField("Church", on_delete=models.CASCADE, related_name="subscription")
@@ -386,6 +393,7 @@ class ChurchCommission(models.Model):
         return f"{self.user.phone_number} → {self.commission.name} @ {self.church.title}"
 
 class Deny(models.Model):
+
     church = models.ForeignKey("Church", on_delete=models.CASCADE, related_name="denied_members")
     user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="denied_in_churches")
     reason = models.TextField(blank=True)
@@ -396,3 +404,78 @@ class Deny(models.Model):
 
     def __str__(self):
         return f"{self.user.phone_number} denied from {self.church.title}"
+    
+class DonationCategory(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+
+  # Une catégorie par église
+
+    def __str__(self):
+        return f"{self.name}"
+    
+
+class Donation(models.Model):
+
+    PAYMENT_GATEWAYS = [
+        ("MOMO", "Mobile Money"),
+        ("OM", "Orange Money"),
+        ("CARD", "Carte Bancaire"),
+        ("CASH", "Cash"),
+        ("OTHER", "Autre"),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="donations")
+    church = models.ForeignKey(Church, on_delete=models.CASCADE, related_name="donations")
+    category = models.ForeignKey(DonationCategory, on_delete=models.SET_NULL, null=True)
+    withdrawed = models.BooleanField(default=False) 
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=10, default="XAF")
+
+    gateway = models.CharField(max_length=20, choices=PAYMENT_GATEWAYS, default="CASH")
+    gateway_transaction_id = models.CharField(max_length=200, blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    message = models.TextField(blank=True)  # message du donateur (optionnel)
+    metadata = models.JSONField(default=dict, blank=True)  # données techniques du paiement
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.user.phone_number} → {self.amount} {self.currency} ({self.category})"
+class BookOrder(models.Model):
+
+    PAYMENT_CHOICES = [
+        ("MOMO", "Mobile Money"),
+        ("OM", "Orange Money"),
+        ("CARD", "Carte Bancaire"),
+        ("CASH", "Cash"),
+        ("OTHER", "Autre"),
+    ]
+    DELIVERY_CHOICES = [
+        ("DIGITAL", "Numérique"),
+        ("PHYSICAL", "Physique"),
+    ]
+    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="book_orders")
+    content = models.ForeignKey("Content", on_delete=models.CASCADE, related_name="book_orders")
+    delivery_type = models.CharField(max_length=20, choices=DELIVERY_CHOICES, default="DIGITAL")
+    
+    quantity = models.PositiveIntegerField(default=1)
+    total_price = models.DecimalField(max_digits=12, decimal_places=2)
+    withdrawed = models.BooleanField(default=False) 
+    payment_gateway = models.CharField(max_length=20, choices=PAYMENT_CHOICES, default="CASH")
+    payment_transaction_id = models.CharField(max_length=200, blank=True, null=True)
+    
+    shipped = models.BooleanField(default=False)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Calcul automatique du prix total
+        if self.content.price:
+            self.total_price = self.quantity * self.content.price
+        else:
+            self.total_price = 0
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.user.phone_number} - {self.content.title} ({self.delivery_type}) x{self.quantity}"
