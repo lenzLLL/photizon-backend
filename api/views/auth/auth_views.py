@@ -170,7 +170,7 @@ def delete_subscription(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def change_subscription_plan(request, church_id):
     plan = request.data.get("plan")
-    if plan not in ["FREE", "STARTER", "PRO", "PREMUIM"]:
+    if plan not in ["FREE", "STARTER", "PRO", "PREMIUM"]:
         return Response({"error": "Invalid plan"}, status=400)
 
     church = get_object_or_404(Church, id=church_id)
