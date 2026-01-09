@@ -2,23 +2,39 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 from django.utils.text import slugify
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import F, Sum
+from django.apps import apps
 import uuid
 # -----------------------------------------------------
 # Church Model (défini en premier pour éviter les erreurs)
 # -----------------------------------------------------
 
 class Church(models.Model):
+
     STATUS_CHOICES = (
         ("PENDING", "En attente"),
         ("APPROVED", "Approuvée"),
         ("REJECTED", "Rejetée"),
     )
+    class Meta:
+        indexes = [
+        models.Index(fields=["status"]),
+        models.Index(fields=["country", "city"]),
+        models.Index(fields=["is_public"]),
+       ]
     # Identification
-    code = models.IntegerField(unique=True, db_index=True)
-    title = models.CharField(max_length=50, unique=True, db_index=True)
-    slug = models.SlugField(unique=True, blank=True)
+    code = models.BigAutoField(
+        primary_key=False,
+        unique=True,
+        editable=False
+    )
+    title = models.CharField(max_length=100, unique=True, db_index=True)
+    slug = models.SlugField(blank=True,max_length=120)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
     lang = models.CharField(default="fr")
+
     # Description & branding
     description = models.TextField(blank=True)
     logo_url = models.URLField(max_length=500, blank=True, null=True)
@@ -30,9 +46,7 @@ class Church(models.Model):
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     website = models.URLField(blank=True, null=True)
     whatsapp_phone = models.TextField(max_length=500, blank=True, null=True)
-    is_verified = models.BooleanField(default=False)
     doc_url = models.URLField(max_length=500, default="")
-
 
     # Social media
     tiktok_url = models.URLField(blank=True, null=True)
@@ -55,6 +69,7 @@ class Church(models.Model):
     seats = models.PositiveIntegerField(default=0)
     is_public = models.BooleanField(default=True)
     is_verified = models.BooleanField(default=False)
+    look_actuality = models.BooleanField(default=False)
 
     # Subscription SaaS
     is_active_subscription = models.BooleanField(default=True)
@@ -77,9 +92,7 @@ class Church(models.Model):
         if not self.slug:
             self.slug = slugify(self.title)
  # Exemple: A9F73B12E1
-        if not self.code:
-            last_churchs = Church.objects.all().count()
-            self.code = last_churchs+1
+
         super().save(*args, **kwargs)
     def __str__(self):
         return self.title
@@ -119,7 +132,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     name = models.CharField(max_length=100, blank=True)
     phone_number = models.CharField(max_length=50, unique=True, db_index=True)
     picture_url = models.URLField(blank=True, null=True)
-
     ROLE_CHOICES = [
         ("SADMIN", "Sadmin"),
         ("USER", "User"),
@@ -135,17 +147,18 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         related_name="members"
     )
-
+    longitude = models.FloatField(default=0.0)
+    latitude = models.FloatField(default=0.0)
+    city = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    address = models.CharField(max_length=250, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)  # indispensable pour l'admin Django
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     USERNAME_FIELD = "phone_number"
     REQUIRED_FIELDS = []
-
     objects = UserManager()
-
     def __str__(self):
         return f"{self.phone_number} ({self.role})"
 
@@ -158,7 +171,7 @@ Church.add_to_class(
     "owner",
     models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
+        on_delete=models.NULL,
         related_name="owners_church",
         null=True,
         blank=True
@@ -174,6 +187,7 @@ class Content(models.Model):
         ("POST", "Short"),
         ("BOOK","Book")
     ]
+
     DELIVERY_CHOICES = [
         ("DIGITAL", "Numérique"),
         ("PHYSICAL", "Physique"),
@@ -195,25 +209,56 @@ class Content(models.Model):
     file = models.URLField(blank=True, null=True)
 
     # Event-specific fields
-    start_at = models.DateTimeField(null=True, blank=True)
+    start_at = models.DateTimeField(null=True, blank=True, db_index=True)
     end_at = models.DateTimeField(null=True, blank=True)
     location = models.CharField(max_length=250, blank=True)
     is_paid = models.BooleanField(default=False)
+    is_public = models.BooleanField(default=False)
     price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     currency = models.CharField(max_length=10, default="XAF")
     # Flexibility
     metadata = models.JSONField(default=dict)
 
+    # Event/ticketing fields
+    capacity = models.PositiveIntegerField(null=True, blank=True)
+    tickets_sold = models.PositiveIntegerField(default=0)
+    allow_ticket_sales = models.BooleanField(default=False)
+
     category = models.ForeignKey("Category", on_delete=models.SET_NULL, null=True)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     published = models.BooleanField(default=True)
 
+
+    # dans class Content
+   
+    def save(self, *args, **kwargs):
+        # auto-generate slug if missing
+        if not self.slug and self.title:
+            self.slug = slugify(self.title)[:120]
+
+        # validate ticket counts vs capacity
+        if self.capacity is not None and self.tickets_sold is not None:
+            if self.tickets_sold > self.capacity:
+                raise ValidationError("tickets_sold cannot exceed capacity")
+
+        super().save(*args, **kwargs)
+
+    def available_tickets(self):
+        """Return remaining tickets (None means unlimited/not set)."""
+        if self.capacity is None:
+            return None
+        return max(0, self.capacity - (self.tickets_sold or 0))
+
     def __str__(self):
         return f"{self.type} - {self.title}"
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["start_at"]), models.Index(fields=["-created_at"])]
   
 
 
@@ -267,7 +312,6 @@ class OTP(models.Model):
     def is_expired(self):
         from django.conf import settings
         expiration = settings.OTP_EXPIRATION_SECONDS
-        print("last_sent_at:", settings.OTP_EXPIRATION_SECONDS)
         return (timezone.now() - self.last_sent_at).total_seconds() > expiration
 
     def can_resend(self):
@@ -295,7 +339,8 @@ class ChurchAdmin(models.Model):
         return f"{self.user.phone_number} @ {self.church.title} ({self.role})"
 
 
-# SaaS subscription model
+
+
 class Subscription(models.Model):
     PLAN_CHOICES = [
         ("FREE", "Free"),
@@ -441,6 +486,7 @@ class Donation(models.Model):
 
     def __str__(self):
         return f"{self.user.phone_number} → {self.amount} {self.currency} ({self.category})"
+
 class BookOrder(models.Model):
 
     PAYMENT_CHOICES = [
@@ -459,7 +505,7 @@ class BookOrder(models.Model):
     delivery_type = models.CharField(max_length=20, choices=DELIVERY_CHOICES, default="DIGITAL")
     
     quantity = models.PositiveIntegerField(default=1)
-    total_price = models.DecimalField(max_digits=12, decimal_places=2)
+    total_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     withdrawed = models.BooleanField(default=False) 
     payment_gateway = models.CharField(max_length=20, choices=PAYMENT_CHOICES, default="CASH")
     payment_transaction_id = models.CharField(max_length=200, blank=True, null=True)
@@ -469,13 +515,172 @@ class BookOrder(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # flag to indicate this order purchases tickets for an event
+    is_ticket = models.BooleanField(default=False)
+    # optional: which ticket type (if ticket types are used)
+    ticket_type = models.ForeignKey("TicketType", on_delete=models.SET_NULL, null=True, blank=True)
+
     def save(self, *args, **kwargs):
-        # Calcul automatique du prix total
-        if self.content.price:
-            self.total_price = self.quantity * self.content.price
-        else:
-            self.total_price = 0
-        super().save(*args, **kwargs)
+        # Vérifie la disponibilité des tickets si c'est une commande de billets.
+        # On utilise une transaction + select_for_update pour éviter la sur-vente.
+        with transaction.atomic():
+            # lock related rows
+            if self.is_ticket:
+                if getattr(self, "ticket_type_id", None):
+                    # lock the ticket type row
+                    tt = TicketType.objects.select_for_update().get(pk=self.ticket_type_id)
+                    if tt.quantity is not None and tt.quantity < (self.quantity or 0):
+                        raise ValidationError("Not enough tickets available for the selected ticket type")
+                else:
+                    # lock the content row
+                    c = Content.objects.select_for_update().get(pk=self.content_id)
+                    if c.capacity is not None and (c.capacity - (c.tickets_sold or 0)) < (self.quantity or 0):
+                        raise ValidationError("Not enough tickets available for this event")
+
+            # Calcul automatique du prix total
+            unit_price = 0
+            try:
+                if self.is_ticket and getattr(self, "ticket_type", None):
+                    unit_price = self.ticket_type.price or 0
+                elif getattr(self, "content", None) and self.content.price:
+                    unit_price = self.content.price
+            except Exception:
+                unit_price = 0
+            self.total_price = (self.quantity or 0) * (unit_price or 0)
+            super().save(*args, **kwargs)
+
+    def issue_tickets(self, payment_transaction_id=None, buyer=None):
+        """
+        Atomically issue tickets for this order after payment confirmation.
+        Returns list of created Ticket instances.
+        """
+        if not self.is_ticket:
+            raise ValidationError("This order is not a ticket order")
+
+        Ticket = apps.get_model("api", "Ticket")
+        TicketType = apps.get_model("api", "TicketType")
+        ContentModel = apps.get_model("api", "Content")
+
+        with transaction.atomic():
+            # Lock and validate availability
+            if self.ticket_type_id:
+                tt = TicketType.objects.select_for_update().get(pk=self.ticket_type_id)
+                if tt.quantity is not None and tt.quantity < (self.quantity or 0):
+                    raise ValidationError("Not enough tickets available for the selected ticket type")
+            else:
+                c = ContentModel.objects.select_for_update().get(pk=self.content_id)
+                if c.capacity is not None and (c.capacity - (c.tickets_sold or 0)) < (self.quantity or 0):
+                    raise ValidationError("Not enough tickets available for this event")
+
+            # compute unit price
+            unit_price = 0
+            if self.ticket_type_id:
+                tt = TicketType.objects.get(pk=self.ticket_type_id)
+                unit_price = tt.price or 0
+            else:
+                c = ContentModel.objects.get(pk=self.content_id)
+                unit_price = c.price or 0
+
+            # create tickets
+            tickets = []
+            content_obj = ContentModel.objects.get(pk=self.content_id)
+            buyer_user = buyer or self.user
+            for _ in range(self.quantity or 0):
+                t = Ticket.objects.create(
+                    content=content_obj,
+                    order=self,
+                    ticket_type=(tt if getattr(self, "ticket_type_id", None) else None),
+                    user=buyer_user,
+                    price=unit_price,
+                )
+                tickets.append(t)
+
+            # decrement stock and increment sold counters
+            if self.ticket_type_id and tt.quantity is not None:
+                TicketType.objects.filter(pk=tt.pk).update(quantity=F('quantity') - (self.quantity or 0))
+
+            ContentModel.objects.filter(pk=self.content_id).update(tickets_sold=F('tickets_sold') + (self.quantity or 0))
+
+            # update order with payment transaction id if provided
+            if payment_transaction_id:
+                self.payment_transaction_id = payment_transaction_id
+                # update without re-running availability checks via queryset
+                BookOrder = apps.get_model("api", "BookOrder")
+                BookOrder.objects.filter(pk=self.pk).update(payment_transaction_id=payment_transaction_id)
+
+            return tickets
 
     def __str__(self):
         return f"{self.user.phone_number} - {self.content.title} ({self.delivery_type}) x{self.quantity}"
+
+
+class TicketType(models.Model):
+    """Category / tariff for an event (e.g. CLASSIQUE, VIP)."""
+    content = models.ForeignKey("Content", on_delete=models.CASCADE, related_name="ticket_types")
+    name = models.CharField(max_length=100)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    # quantity=None means unlimited
+    quantity = models.PositiveIntegerField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["name"]), models.Index(fields=["-created_at"])]
+
+    class Meta:
+        unique_together = ("content", "name")
+
+    def __str__(self):
+        return f"{self.content.title} — {self.name} ({self.price})"
+
+    def available(self):
+        """Return remaining tickets for this type (None means unlimited)."""
+        if self.quantity is None:
+            return None
+        Ticket = apps.get_model("api", "Ticket")
+        reserved = TicketReservation.objects.filter(ticket_type=self, expires_at__gt=timezone.now()).aggregate(sum=Sum('quantity'))['sum'] or 0
+        sold = Ticket.objects.filter(ticket_type=self).count()
+        return max(0, self.quantity - (reserved or 0) - sold)
+
+
+class TicketReservation(models.Model):
+    """Temporary reservation to hold tickets during payment window."""
+    user = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    content = models.ForeignKey("Content", on_delete=models.CASCADE)
+    ticket_type = models.ForeignKey("TicketType", on_delete=models.SET_NULL, null=True, blank=True)
+    quantity = models.PositiveIntegerField(default=1)
+    reserved_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["expires_at"])]
+
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    def __str__(self):
+        return f"Reservation {self.id} — {self.content.title} x{self.quantity}"
+
+
+class Ticket(models.Model):
+    """Issued ticket linked to an order. Use UUID as public identifier."""
+    T_STATUS = [("NEW", "New"), ("USED", "Used"), ("CANCELLED", "Cancelled")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    content = models.ForeignKey("Content", on_delete=models.CASCADE, related_name="tickets")
+    order = models.ForeignKey("BookOrder", on_delete=models.CASCADE, related_name="tickets")
+    ticket_type = models.ForeignKey("TicketType", on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    seat = models.CharField(max_length=50, blank=True, null=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=20, choices=T_STATUS, default="NEW")
+    issued_at = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user"]), models.Index(fields=["status"]), models.Index(fields=["-issued_at"])]
+
+    def __str__(self):
+        ttype = self.ticket_type.name if self.ticket_type else "--"
+        return f"Ticket {self.id} — {self.content.title} ({ttype})"
