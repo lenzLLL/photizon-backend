@@ -6,7 +6,7 @@ from .views.crud.crud_views import churches_metrics,create_subchurch_view, deny_
 from .views.gifts.gifts_view import (
     admin_book_order_stats, book_order_detail,church_financial_overview, create_book_order, list_categories_d, create_category_d, retrieve_category_d, update_category_d, delete_category_d,
     make_donation, list_user_donations, list_church_donations,
-    church_donation_stats, admin_all_churches_donation_stats, user_book_orders, withdraw_all_donations_view, withdraw_all_orders_view
+    church_donation_stats, admin_all_churches_donation_stats, user_book_orders, withdraw_all_donations_view, withdraw_all_orders_view, complete_book_order
 )
 urlpatterns = [
     path("auth/send-otp/", send_otp_view),
@@ -115,6 +115,7 @@ urlpatterns = [
     path("books/<str:book_id>/order/", create_book_order, name="create-book-order"),
     path("books/orders/", user_book_orders, name="user-book-orders"),
     path("books/orders/<str:order_id>/", book_order_detail, name="book-order-detail"),
+    path("books/orders/<str:order_id>/complete/", complete_book_order, name="complete-book-order"),
     path("admin/book-orders/stats/", admin_book_order_stats, name="admin-book-order-stats"),
     path("church/<str:church_id>/withdrawed/",church_financial_overview, name="church_gift"),
     path("church/<int:church_id>/withdraw-all-donations/", withdraw_all_donations_view),

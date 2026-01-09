@@ -5,8 +5,8 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Sum
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from api.models import BookOrder, ChurchAdmin, Content, Donation, DonationCategory, Church, User
-from api.serializers import BookOrderSerializer, DonationSerializer, DonationCategorySerializer
+from api.models import BookOrder, ChurchAdmin, Content, Donation, DonationCategory, Church, User, TicketType
+from api.serializers import BookOrderSerializer, DonationSerializer, DonationCategorySerializer, TicketSerializer
 from api.permissions import IsAuthenticatedUser, user_is_church_owner
 
 # ----------------------
@@ -276,22 +276,64 @@ def create_book_order(request, book_id):
     content = get_object_or_404(Content, id=book_id)
     order_type = request.data.get("delivery_type", "DIGITAL")  # DIGITAL ou PHYSICAL
     quantity = int(request.data.get("quantity", 1))
+    # Ticket-related params
+    is_ticket = bool(request.data.get("is_ticket", False))
+    ticket_type_id = request.data.get("ticket_type_id")
     shipped = True if order_type.upper() == "DIGITAL" else False
     delivery_at = timezone.now() if shipped else None
     if user_is_church_owner(request.user, content.church):
         return Response({"error": "Church owners cannot order their own books."}, status=403)
-    
-    order = BookOrder.objects.create(
+    # If this is a ticket order, enforce event type and availability
+    if is_ticket:
+        if content.type != "EVENT":
+            return Response({"error": "Tickets can only be purchased for EVENTS."}, status=400)
+
+    order_kwargs = dict(
         user=request.user,
         content=content,
         quantity=quantity,
         delivery_type=order_type.upper(),
         shipped=shipped,
-        delivered_at=delivery_at
+        delivered_at=delivery_at,
     )
+    if is_ticket:
+        order_kwargs["is_ticket"] = True
+        if ticket_type_id:
+            tt = get_object_or_404(TicketType, id=ticket_type_id)
+            order_kwargs["ticket_type"] = tt
+
+    order = BookOrder.objects.create(**order_kwargs)
 
     serializer = BookOrderSerializer(order)
     return Response(serializer.data, status=201)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def complete_book_order(request, order_id):
+    """Finalize a book/ticket order after payment confirmation.
+    Expects `payment_transaction_id` in body. For ticket orders, this will call `issue_tickets()`.
+    """
+    order = get_object_or_404(BookOrder, id=order_id)
+    payment_tx = request.data.get("payment_transaction_id")
+
+    if not payment_tx:
+        return Response({"error": "payment_transaction_id required"}, status=400)
+
+    # Attach payment tx and if ticket order, issue tickets
+    if order.is_ticket:
+        try:
+            tickets = order.issue_tickets(payment_transaction_id=payment_tx, buyer=request.user)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+        # serialize tickets
+        ticket_serializer = TicketSerializer(tickets, many=True)
+        return Response({"order": BookOrderSerializer(order).data, "tickets": ticket_serializer.data})
+
+    # non-ticket orders: just attach payment id
+    order.payment_transaction_id = payment_tx
+    order.save()
+    return Response(BookOrderSerializer(order).data)
 
 # -----------------------------------------
 # Lister les commandes d’un utilisateur

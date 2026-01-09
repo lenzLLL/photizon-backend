@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category
+from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation
 from django.utils.text import slugify
 
 class UserSerializer(serializers.ModelSerializer):
@@ -222,7 +222,8 @@ class ContentListSerializer(serializers.ModelSerializer):
         model = Content
         fields = [
             "id","church","type","title","slug","description","cover_image_url",
-            "is_paid","price","currency","category","tags","created_at","published"
+            "is_paid","price","currency","category","tags","created_at","published",
+            "capacity","tickets_sold","allow_ticket_sales"
         ]
 
     def get_tags(self, obj):
@@ -393,13 +394,15 @@ class DonationSerializer(serializers.ModelSerializer):
 class BookOrderSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
     content = serializers.SerializerMethodField()
+    tickets = serializers.SerializerMethodField()
 
     class Meta:
         model = BookOrder
         fields = [
             "id", "user", "content", "delivery_type", "quantity", 
             "total_price", "payment_gateway", "payment_transaction_id", 
-            "shipped", "delivered_at", "created_at","withdrawed"
+            "shipped", "delivered_at", "created_at","withdrawed",
+            "is_ticket", "ticket_type", "tickets"
         ]
     
     def get_user(self, obj):
@@ -418,3 +421,25 @@ class BookOrderSerializer(serializers.ModelSerializer):
             "church_id": obj.content.church.id,
             "church_title": obj.content.church.title
         }
+
+    def get_tickets(self, obj):
+        qs = obj.tickets.all() if hasattr(obj, "tickets") else []
+        return TicketSerializer(qs, many=True).data
+
+
+class TicketTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TicketType
+        fields = ["id", "content", "name", "price", "quantity", "created_at"]
+
+
+class TicketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Ticket
+        fields = ["id", "content", "order", "ticket_type", "user", "seat", "price", "status", "issued_at"]
+
+
+class TicketReservationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TicketReservation
+        fields = ["id", "user", "content", "ticket_type", "quantity", "reserved_at", "expires_at"]

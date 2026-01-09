@@ -25,10 +25,11 @@ class Church(models.Model):
         models.Index(fields=["is_public"]),
        ]
     # Identification
-    code = models.BigAutoField(
-        primary_key=False,
+    code = models.BigIntegerField(
+        null=True,
+        blank=True,
         unique=True,
-        editable=False
+        editable=False,
     )
     title = models.CharField(max_length=100, unique=True, db_index=True)
     slug = models.SlugField(blank=True,max_length=120)
@@ -92,8 +93,14 @@ class Church(models.Model):
         if not self.slug:
             self.slug = slugify(self.title)
  # Exemple: A9F73B12E1
-
+        # First save to ensure `id` is assigned
         super().save(*args, **kwargs)
+        # Ensure `code` mirrors `id` on initial creation
+        if not self.code:
+            # update at DB level to avoid recursion into save()
+            type(self).objects.filter(pk=self.pk).update(code=self.id)
+            # update instance in memory
+            self.code = self.id
     def __str__(self):
         return self.title
 
@@ -171,7 +178,7 @@ Church.add_to_class(
     "owner",
     models.ForeignKey(
         User,
-        on_delete=models.NULL,
+            on_delete=models.SET_NULL,
         related_name="owners_church",
         null=True,
         blank=True
