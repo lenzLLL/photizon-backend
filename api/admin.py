@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Church, ChurchAdmin, Subscription, Notification, OTP, Content, Category, BookOrder, TicketType, TicketReservation, Ticket
+from .models import Church, ChurchAdmin, Subscription, Notification, OTP, Content, Category, BookOrder, TicketType, TicketReservation, Ticket, Payment
 
 @admin.register(Church)
 class ChurchAdminAdmin(admin.ModelAdmin):
@@ -49,3 +49,10 @@ class TicketAdmin(admin.ModelAdmin):
     list_display = ("id","content","order","user","status","issued_at","price")
     search_fields = ("id","user__phone_number","content__title")
     list_filter = ("status",)
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ("id","user","church","amount","currency","gateway","status","gateway_transaction_id","created_at")
+    search_fields = ("user__phone_number","gateway_transaction_id","church__title")
+    list_filter = ("gateway","status")

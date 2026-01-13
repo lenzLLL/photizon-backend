@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.utils import timezone
 from api.models import Church,ChurchAdmin, ChurchCommission, Commission,Subscription,User
-from api.serializers import ChurchAdminSerializer, ChurchCommissionSerializer, ChurchCreateSerializer, CommissionSerializer, MemberSerializer,SubscriptionSerializer,ChurchSerializer, UserMeSerializer, UserSerializer
+from api.serializers import ChurchAdminSerializer, ChurchCommissionSerializer, ChurchCreateSerializer, CommissionSerializer, MemberSerializer,SubscriptionSerializer,ChurchSerializer, UserMeSerializer, UserSerializer, CommissionWithMembersSerializer
 from api.permissions import IsAuthenticatedUser, IsSuperAdmin, is_church_admin, user_is_church_admin, user_is_church_owner
 from rest_framework import status
 from django.db.models import Count
@@ -48,6 +48,8 @@ def delete_commission(request, commission_id):
 @permission_classes([IsAuthenticatedUser])
 def add_member_to_church_commission(request, church_id, commission_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     
     # vérifier si le request.user est OWNER ou ADMIN de cette église
     if not is_church_admin(request.user, church):
@@ -83,6 +85,8 @@ def add_member_to_church_commission(request, church_id, commission_id):
 @permission_classes([IsAuthenticatedUser])
 def list_church_commissions(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     commissions = ChurchCommission.objects.filter(church=church).select_related("commission")
 
     serializer = ChurchCommissionSerializer(commissions, many=True)
@@ -92,6 +96,8 @@ def list_church_commissions(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def church_commissions_summary(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     commissions = ChurchCommission.objects.filter(church=church)
 
@@ -112,11 +118,11 @@ def church_commissions_summary(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def list_church_commission_members(request, church_id, commission_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     commission = get_object_or_404(Commission, id=commission_id)
-
-    members = ChurchCommission.objects.filter(church=church, commission=commission)
-
-    serializer = ChurchCommissionSerializer(members, many=True)
+    # Return the commission with its members nested (users with their roles)
+    serializer = CommissionWithMembersSerializer(commission, context={"church_id": church.id})
     return Response(serializer.data)
 
 @api_view(["POST"])

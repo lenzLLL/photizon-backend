@@ -6,7 +6,7 @@ from rest_framework import status
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework_simplejwt.tokens import RefreshToken
-from api.models import Church, Subscription, User, OTP,Notification
+from api.models import Church, Subscription, User, OTP,Notification, Payment
 from api.serializers import SubscriptionSerializer, UserSerializer
 from api.services.whatsapp import send_otp_whatsapp
 from api.permissions import IsAuthenticatedUser, IsSuperAdmin, is_church_admin
@@ -90,6 +90,8 @@ def verify_otp_view(request):
 @permission_classes([IsAuthenticatedUser])
 def get_church_subscription(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     # autorisé : superadmin OU admin/owner de l’église
     if request.user.role != "SADMIN" and not is_church_admin(request.user, church):
@@ -109,6 +111,8 @@ def create_subscription(request):
     expires_at = request.data.get("expires_at")
 
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     if hasattr(church, "subscription"):
         return Response({"detail": "Subscription already exists"}, status=400)
@@ -119,6 +123,28 @@ def create_subscription(request):
         expires_at=expires_at
     )
 
+    # Record a payment for non-free plans so admins can reconcile revenue
+    PLAN_PRICES = {
+        "STARTER": 10000.00,
+        "PRO": 30000.00,
+        "PREMIUM": 50000.00,
+    }
+    if plan and plan != "FREE":
+        amount = PLAN_PRICES.get(plan, 0)
+        Payment.objects.create(
+            user=request.user,
+            church=church,
+            order=None,
+            donation=None,
+            amount=amount,
+            currency="XAF",
+            gateway=request.data.get("gateway", "MOMO"),
+            gateway_transaction_id=request.data.get("gateway_transaction_id"),
+            status="SUCCESS",
+            metadata={"created_via": "create_subscription", "plan": plan},
+            processed_by=request.user if getattr(request.user, "is_staff", False) else None,
+        )
+
     return Response(SubscriptionSerializer(sub).data, status=201)
 
 
@@ -126,6 +152,8 @@ def create_subscription(request):
 @permission_classes([IsAuthenticatedUser])
 def update_subscription(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     # Vérifier si la subscription existe ou la créer
     sub, created = Subscription.objects.get_or_create(
@@ -147,6 +175,25 @@ def update_subscription(request, church_id):
 
     if serializer.is_valid():
         serializer.save()
+        # If subscription was auto-created (e.g., via update endpoint), record payment if plan is paid
+        PLAN_PRICES = {
+            "STARTER": 10000.00,
+            "PRO": 30000.00,
+            "PREMIUM": 50000.00,
+        }
+        if created and serializer.instance.plan and serializer.instance.plan != "FREE":
+            amount = PLAN_PRICES.get(serializer.instance.plan, 0)
+            Payment.objects.create(
+                user=request.user,
+                church=church,
+                amount=amount,
+                currency="XAF",
+                gateway=request.data.get("gateway", "MOMO"),
+                gateway_transaction_id=request.data.get("gateway_transaction_id"),
+                status="SUCCESS",
+                metadata={"created_via": "update_subscription_auto_create", "plan": serializer.instance.plan},
+                processed_by=request.user if getattr(request.user, "is_staff", False) else None,
+            )
         return Response({
             "created": created,      # True = subscription auto-créée
             "subscription": serializer.data
@@ -158,6 +205,8 @@ def update_subscription(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def delete_subscription(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     sub = getattr(church, "subscription", None)
 
     if not sub:
@@ -174,16 +223,37 @@ def change_subscription_plan(request, church_id):
         return Response({"error": "Invalid plan"}, status=400)
 
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     sub = church.subscription
 
     # Mettre à jour le plan
     sub.plan = plan
 
     # Mettre à jour expire_at => maintenant + 1 mois
-    sub.expire_at = timezone.now() + timedelta(days=30)
+    sub.expires_at = timezone.now() + timedelta(days=30)
 
     sub.save()
 
+    # record payment for plan change if not free
+    PLAN_PRICES = {
+        "STARTER": 10000.00,
+        "PRO": 30000.00,
+        "PREMIUM": 50000.00,
+    }
+    if plan and plan != "FREE":
+        amount = PLAN_PRICES.get(plan, 0)
+        Payment.objects.create(
+            user=request.user,
+            church=church,
+            amount=amount,
+            currency="XAF",
+            gateway=request.data.get("gateway", "MOMO"),
+            gateway_transaction_id=request.data.get("gateway_transaction_id"),
+            status="SUCCESS",
+            metadata={"created_via": "change_subscription_plan", "plan": plan},
+            processed_by=request.user if getattr(request.user, "is_staff", False) else None,
+        )
     return Response({
         "detail": f"Plan updated to {plan}",
         "expire_at": sub.expire_at
@@ -193,6 +263,8 @@ def change_subscription_plan(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def toggle_subscription_status(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     sub = church.subscription
 
     sub.is_active = not sub.is_active
@@ -205,6 +277,8 @@ def toggle_subscription_status(request, church_id):
 def renew_subscription(request, church_id):
     months = int(request.data.get("months", 1))
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     sub = church.subscription
  
     # extend expiry date
@@ -216,12 +290,35 @@ def renew_subscription(request, church_id):
 
     sub.save()
 
+    # Record payment for renewal (if plan is paid)
+    PLAN_PRICES = {
+        "STARTER": 10000.00,
+        "PRO": 30000.00,
+        "PREMIUM": 50000.00,
+    }
+    if sub.plan and sub.plan != "FREE":
+        unit = PLAN_PRICES.get(sub.plan, 0)
+        total = unit * months
+        Payment.objects.create(
+            user=request.user,
+            church=church,
+            amount=total,
+            currency="XAF",
+            gateway=request.data.get("gateway", "MOMO"),
+            gateway_transaction_id=request.data.get("gateway_transaction_id"),
+            status="SUCCESS",
+            metadata={"created_via": "renew_subscription", "plan": sub.plan, "months": months},
+            processed_by=request.user if getattr(request.user, "is_staff", False) else None,
+        )
+
     return Response({"detail": "Subscription renewed", "expires_at": sub.expires_at})
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def check_subscription_status(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     if request.user.role != "SADMIN" and not is_church_admin(request.user, church):
         return Response({"detail": "Forbidden"}, status=403)

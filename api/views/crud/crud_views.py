@@ -21,7 +21,8 @@ def create_church_view(request):
     user = request.user
     user.refresh_from_db()
     if serializer.is_valid():
-        church = serializer.save(owner=request.user)
+        # save church without owner FK; ownership is created via ChurchAdmin
+        church = serializer.save()
         # add owner as ChurchAdmin (OWNER role)
         ChurchAdmin.objects.create(church=church, user=request.user, role="OWNER")
         # create free subscription
@@ -45,6 +46,8 @@ def create_church_view(request):
 @permission_classes([IsAuthenticatedUser])
 def create_subchurch_view(request, church_id):
     parent_church = get_object_or_404(Church, id=church_id)
+    if not getattr(parent_church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     serializer = SubChurchCreateSerializer(data=request.data)
     user = request.user
@@ -52,7 +55,7 @@ def create_subchurch_view(request, church_id):
 
     if serializer.is_valid():
         # injecter le parent ICI !!!
-        church = serializer.save(owner=user, parent=parent_church)
+        church = serializer.save(parent=parent_church)
 
         # add owner as ChurchAdmin (OWNER role)
         ChurchAdmin.objects.create(church=church, user=user, role="OWNER")
@@ -91,8 +94,8 @@ def create_subchurch_view(request, church_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def list_my_churches(request):
-    qs = Church.objects.filter(owner=request.user) | Church.objects.filter(admins__user=request.user)
-    qs = qs.distinct()
+    # Return churches where the user is OWNER/ADMIN recorded in ChurchAdmin
+    qs = Church.objects.filter(admins__user=request.user).distinct()
     serializer = ChurchSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -108,7 +111,10 @@ def verify_church_view(request, church_id):
         church.save()
         # create notification to owner (in-app + whatsapp)
         from api.services.notify import create_and_send_whatsapp_notification
-        create_and_send_whatsapp_notification(church.owner, "Église approuvée", f"Votre église {church.title} a été approuvée.", template_name="church_approved", template_params=[church.title])
+        # Notify all owners recorded in ChurchAdmin (not the Church.owner field)
+        owner_entries = ChurchAdmin.objects.filter(church=church, role="OWNER")
+        for entry in owner_entries:
+            create_and_send_whatsapp_notification(entry.user, "Église approuvée", f"Votre église {church.title} a été approuvée.", template_name="church_approved", template_params=[church.title])
         return Response({"status":"ok","message":"approved"})
     elif action == "REJECT":
         church.status = "REJECTED"
@@ -121,8 +127,10 @@ def verify_church_view(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def add_church_admin(request, church_id):
     church = get_object_or_404(Church, id=church_id)
-    # only existing church owner or SADMIN can add admins
-    if church.owner != request.user and getattr(request.user,"role",None) != "SADMIN":
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
+    # only existing church owner (via ChurchAdmin) or SADMIN can add admins
+    if not user_is_church_owner(request.user, church):
         return Response({"error":"Not allowed"}, status=403)
     user_id = request.data.get("user_id")
     role = request.data.get("role","ADMIN")
@@ -133,6 +141,10 @@ def add_church_admin(request, church_id):
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return Response({"error":"user not found"}, status=404)
+    # Prevent assigning a role to a user who has been banned from this church
+    if Deny.objects.filter(user=user, church=church).exists():
+        return Response({"detail": "User is banned from this church."}, status=403)
+
     if user.current_church_id != church.id:
         return Response(
             {"error": "User must join the church before receiving a role."},
@@ -148,6 +160,8 @@ def add_church_admin(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def list_sub_churches(request, church_id):
     parent = get_object_or_404(Church, id=church_id)
+    if not getattr(parent, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     subs = parent.sub_churches.all()
     serializer = ChurchSerializer(subs, many=True)
     return Response(serializer.data)
@@ -163,6 +177,8 @@ def list_users(request):
 @permission_classes([IsSuperAdmin])
 def update_church(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     serializer = ChurchSerializer(church, data=request.data, partial=True)
 
@@ -173,6 +189,8 @@ def update_church(request, church_id):
         if "title" in request.data:
             updated.slug = slugify(updated.title)
             updated.save()
+
+        # phone_number_1..4 are handled by the serializer automatically
 
         return Response(ChurchSerializer(updated).data)
 
@@ -230,7 +248,10 @@ def delete_church(request, church_id):
 @api_view(["PUT", "PATCH"])
 @permission_classes([IsAuthenticatedUser])
 def update_church_by_owner(request, church_id):
+
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     # 🔥 Vérifier que l'utilisateur est OWNER via ChurchAdmin
     is_owner = ChurchAdmin.objects.filter(
@@ -359,6 +380,8 @@ def filter_church_members(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def join_church(request, church_code):
     church = get_object_or_404(Church, code=church_code)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     user = request.user
     can_join, msg = can_join_church(user, church)
     if not can_join:
@@ -379,6 +402,8 @@ def join_church(request, church_code):
 @permission_classes([IsAuthenticatedUser])
 def leave_church(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     user = request.user
 
     # Vérifier qu'il est membre
@@ -426,6 +451,8 @@ def leave_church(request, church_id):
 @permission_classes([IsAuthenticatedUser])
 def deny_user(request, church_id, user_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     user = request.user  # l'admin qui fait l'action
 
     # Vérifier si admin ou owner
@@ -434,10 +461,22 @@ def deny_user(request, church_id, user_id):
 
     target_user = get_object_or_404(User, id=user_id)
 
+    # Ne pas permettre de bannir quelqu'un qui n'appartient pas à l'église
+    is_member = (target_user.current_church_id == church.id)
+    has_role = ChurchAdmin.objects.filter(church=church, user=target_user).exists()
+    if not (is_member or has_role) and user.role != "SADMIN":
+        return Response({"detail": "User is not a member of this church."}, status=400)
+
+    # Empêcher de bannir le dernier OWNER de l'église
+    owner_count_excluding_target = ChurchAdmin.objects.filter(church=church, role="OWNER").exclude(user=target_user).count()
+    is_target_owner = ChurchAdmin.objects.filter(church=church, user=target_user, role="OWNER").exists()
+    if is_target_owner and owner_count_excluding_target < 1:
+        return Response({"detail": "Cannot ban the only owner. Transfer ownership first."}, status=status.HTTP_403_FORBIDDEN)
+
     # Supprimer du current_church si nécessaire
     if target_user.current_church_id == church.id:
         target_user.current_church = None
-        target_user.save()
+        target_user.save(update_fields=["current_church", "updated_at"])
 
     # Supprimer les rôles admin/modérateur
     ChurchAdmin.objects.filter(church=church, user=target_user).delete()
@@ -457,6 +496,8 @@ def unban_user(request, church_id, user_id):
     Seuls les admins/owners de l'église ou SADMIN peuvent le faire.
     """
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     admin_user = request.user
 
     # Vérifier si admin ou owner
@@ -470,6 +511,11 @@ def unban_user(request, church_id, user_id):
 
     # Supprimer l'entrée Deny
     Deny.objects.filter(user=target_user, church=church).delete()
+
+    # Restaurer le current_church si il est vide
+    if target_user.current_church is None:
+        target_user.current_church = church
+        target_user.save(update_fields=["current_church", "updated_at"]) 
 
     return Response({"detail": f"{target_user.phone_number} has been unbanned from {church.title}."})
 

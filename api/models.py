@@ -44,7 +44,11 @@ class Church(models.Model):
 
     # Contact info
     email = models.EmailField(blank=True, null=True)
-    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    # Support up to four phone numbers for an eglise
+    phone_number_1 = models.CharField(max_length=20, blank=True, null=True)
+    phone_number_2 = models.CharField(max_length=20, blank=True, null=True)
+    phone_number_3 = models.CharField(max_length=20, blank=True, null=True)
+    phone_number_4 = models.CharField(max_length=20, blank=True, null=True)
     website = models.URLField(blank=True, null=True)
     whatsapp_phone = models.TextField(max_length=500, blank=True, null=True)
     doc_url = models.URLField(max_length=500, default="")
@@ -89,6 +93,18 @@ class Church(models.Model):
     blank=True,
     related_name="sub_churches"
     )
+    
+    @property
+    def phone_number(self):
+        """Backward-compatible single phone_number property: first non-empty number."""
+        for n in (self.phone_number_1, self.phone_number_2, self.phone_number_3, self.phone_number_4):
+            if n:
+                return n
+        return None
+
+    def phone_numbers(self):
+        """Return a list of phone numbers (non-empty)."""
+        return [n for n in (self.phone_number_1, self.phone_number_2, self.phone_number_3, self.phone_number_4) if n]
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
@@ -204,8 +220,9 @@ class Content(models.Model):
     delivery_type = models.CharField(max_length=20, choices=DELIVERY_CHOICES, default="DIGITAL")
     
     type = models.CharField(max_length=20, choices=TYPE_CHOICES, db_index=True)
-
+     
     title = models.CharField(max_length=250)
+    phone = models.CharField(max_length=250,null=True, blank=True)
     slug = models.SlugField()
     description = models.TextField(blank=True)
     cover_image_url = models.URLField(blank=True, null=True)
@@ -239,6 +256,16 @@ class Content(models.Model):
 
     published = models.BooleanField(default=True)
 
+    # Ticket tiers stored directly on Content (prix et quantités par type)
+    # Exemple: classic, vip, premium
+    has_ticket_tiers = models.BooleanField(default=False)
+    classic_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    classic_quantity = models.PositiveIntegerField(null=True, blank=True)
+    vip_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    vip_quantity = models.PositiveIntegerField(null=True, blank=True)
+    premium_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    premium_quantity = models.PositiveIntegerField(null=True, blank=True)
+
 
     # dans class Content
    
@@ -248,9 +275,20 @@ class Content(models.Model):
             self.slug = slugify(self.title)[:120]
 
         # validate ticket counts vs capacity
+        # existing tickets_sold vs capacity check
         if self.capacity is not None and self.tickets_sold is not None:
             if self.tickets_sold > self.capacity:
                 raise ValidationError("tickets_sold cannot exceed capacity")
+
+        # If ticket tiers are used, ensure their total quantity does not exceed overall capacity
+        if getattr(self, "has_ticket_tiers", False) and self.capacity is not None:
+            total_tier_qty = 0
+            for f in ("classic_quantity", "vip_quantity", "premium_quantity"):
+                v = getattr(self, f, None)
+                if v:
+                    total_tier_qty += int(v)
+            if total_tier_qty > self.capacity:
+                raise ValidationError("Sum of tier quantities exceeds content capacity")
 
         super().save(*args, **kwargs)
 
@@ -267,8 +305,6 @@ class Content(models.Model):
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["start_at"]), models.Index(fields=["-created_at"])]
   
-
-
 class Tag(models.Model):
     name = models.CharField(max_length=50, unique=True)
     slug = models.SlugField(unique=True)
@@ -326,7 +362,6 @@ class OTP(models.Model):
         cooldown = settings.OTP_SEND_COOLDOWN_SECONDS
         return (timezone.now() - self.last_sent_at).total_seconds() > cooldown
 
-
 class ChurchAdmin(models.Model):
     ROLE_CHOICES = [
         ("OWNER", "Owner"),
@@ -344,9 +379,6 @@ class ChurchAdmin(models.Model):
 
     def __str__(self):
         return f"{self.user.phone_number} @ {self.church.title} ({self.role})"
-
-
-
 
 class Subscription(models.Model):
     PLAN_CHOICES = [
@@ -367,7 +399,6 @@ class Subscription(models.Model):
 
     def __str__(self):
         return f"{self.church.title} - {self.plan}"
-
 
 # Extend Notification to hold channel info + send status
 class Notification(models.Model):
@@ -466,7 +497,6 @@ class DonationCategory(models.Model):
     def __str__(self):
         return f"{self.name}"
     
-
 class Donation(models.Model):
 
     PAYMENT_GATEWAYS = [
@@ -494,6 +524,57 @@ class Donation(models.Model):
     def __str__(self):
         return f"{self.user.phone_number} → {self.amount} {self.currency} ({self.category})"
 
+
+class Payment(models.Model):
+    """Unified payment record for orders and donations (for admin reconciliation).
+
+    - Can be linked to a BookOrder or a Donation (or both/none for manual entries).
+    - Stores gateway metadata and who processed the payment in the admin.
+    """
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("SUCCESS", "Successful"),
+        ("FAILED", "Failed"),
+        ("REFUNDED", "Refunded"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
+    church = models.ForeignKey(Church, on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
+    order = models.ForeignKey("BookOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
+    donation = models.ForeignKey("Donation", on_delete=models.SET_NULL, null=True, blank=True, related_name="payments")
+
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=10, default="XAF")
+
+    GATEWAY_CHOICES = [
+        ("MOMO", "Mobile Money"),
+        ("OM", "Orange Money"),
+        ("CARD", "Card"),
+        ("CASH", "Cash"),
+        ("OTHER", "Other"),
+    ]
+    gateway = models.CharField(max_length=20, choices=GATEWAY_CHOICES, default="MOMO")
+    gateway_transaction_id = models.CharField(max_length=200, blank=True, null=True, db_index=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING", db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    # Admin who reconciled/created this payment (if any)
+    processed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="processed_payments")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["gateway_transaction_id"]), models.Index(fields=["status"])]
+
+    def __str__(self):
+        who = self.user.phone_number if self.user else (self.church.title if self.church else str(self.id))
+        return f"Payment {self.id} — {who} — {self.amount} {self.currency} ({self.status})"
+
 class BookOrder(models.Model):
 
     PAYMENT_CHOICES = [
@@ -520,12 +601,27 @@ class BookOrder(models.Model):
     shipped = models.BooleanField(default=False)
     delivered_at = models.DateTimeField(null=True, blank=True)
 
+    # Optional delivery information for physical goods
+    delivery_recipient_name = models.CharField(max_length=250, blank=True, null=True)
+    delivery_address_line1 = models.CharField(max_length=250, blank=True, null=True)
+    delivery_address_line2 = models.CharField(max_length=250, blank=True, null=True)
+    delivery_city = models.CharField(max_length=150, blank=True, null=True)
+    delivery_postal_code = models.CharField(max_length=50, blank=True, null=True)
+    delivery_country = models.CharField(max_length=150, blank=True, null=True)
+    delivery_phone = models.CharField(max_length=50, blank=True, null=True)
+    shipping_method = models.CharField(max_length=100, blank=True, null=True)
+    shipping_cost = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     # flag to indicate this order purchases tickets for an event
     is_ticket = models.BooleanField(default=False)
     # optional: which ticket type (if ticket types are used)
+    # Backwards-compatible: keep FK but prefer `ticket_tier` which reads tiers from Content
     ticket_type = models.ForeignKey("TicketType", on_delete=models.SET_NULL, null=True, blank=True)
+    # New: choose a tier stored on Content directly: CLASSIC, VIP or PREMIUM
+    TIER_CHOICES = [("CLASSIC", "Classic"), ("VIP", "VIP"), ("PREMIUM", "Premium")]
+    ticket_tier = models.CharField(max_length=20, choices=TIER_CHOICES, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         # Vérifie la disponibilité des tickets si c'est une commande de billets.
@@ -533,13 +629,27 @@ class BookOrder(models.Model):
         with transaction.atomic():
             # lock related rows
             if self.is_ticket:
+                # Prefer explicit ticket_type FK if present, else use ticket_tier info on content
                 if getattr(self, "ticket_type_id", None):
                     # lock the ticket type row
                     tt = TicketType.objects.select_for_update().get(pk=self.ticket_type_id)
                     if tt.quantity is not None and tt.quantity < (self.quantity or 0):
                         raise ValidationError("Not enough tickets available for the selected ticket type")
+                elif getattr(self, "ticket_tier", None):
+                    # lock the content row and check tier availability
+                    c = Content.objects.select_for_update().get(pk=self.content_id)
+                    tier = (self.ticket_tier or "").upper()
+                    qty_field = {
+                        "CLASSIC": "classic_quantity",
+                        "VIP": "vip_quantity",
+                        "PREMIUM": "premium_quantity",
+                    }.get(tier)
+                    if qty_field:
+                        avail = getattr(c, qty_field)
+                        if avail is not None and avail < (self.quantity or 0):
+                            raise ValidationError("Not enough tickets available for the selected tier")
                 else:
-                    # lock the content row
+                    # lock the content row and check overall capacity
                     c = Content.objects.select_for_update().get(pk=self.content_id)
                     if c.capacity is not None and (c.capacity - (c.tickets_sold or 0)) < (self.quantity or 0):
                         raise ValidationError("Not enough tickets available for this event")
@@ -547,8 +657,16 @@ class BookOrder(models.Model):
             # Calcul automatique du prix total
             unit_price = 0
             try:
+                # Determine unit price from ticket_type FK, or ticket_tier on content, or content.price
                 if self.is_ticket and getattr(self, "ticket_type", None):
                     unit_price = self.ticket_type.price or 0
+                elif getattr(self, "ticket_tier", None) and getattr(self, "content", None):
+                    tier = (self.ticket_tier or "").upper()
+                    unit_price = {
+                        "CLASSIC": (self.content.classic_price or 0),
+                        "VIP": (self.content.vip_price or 0),
+                        "PREMIUM": (self.content.premium_price or 0),
+                    }.get(tier, 0)
                 elif getattr(self, "content", None) and self.content.price:
                     unit_price = self.content.price
             except Exception:
@@ -603,9 +721,23 @@ class BookOrder(models.Model):
                 tickets.append(t)
 
             # decrement stock and increment sold counters
+            # If using ticket_type FK, decrement its quantity
             if self.ticket_type_id and tt.quantity is not None:
                 TicketType.objects.filter(pk=tt.pk).update(quantity=F('quantity') - (self.quantity or 0))
+            # If using ticket_tier stored on content, decrement the corresponding content tier quantity
+            elif getattr(self, "ticket_tier", None):
+                tier = (self.ticket_tier or "").upper()
+                qty_field = {
+                    "CLASSIC": "classic_quantity",
+                    "VIP": "vip_quantity",
+                    "PREMIUM": "premium_quantity",
+                }.get(tier)
+                if qty_field:
+                    ContentModel.objects.filter(pk=self.content_id).update(**{
+                        qty_field: F(qty_field) - (self.quantity or 0)
+                    })
 
+            # Always increment tickets_sold counter
             ContentModel.objects.filter(pk=self.content_id).update(tickets_sold=F('tickets_sold') + (self.quantity or 0))
 
             # update order with payment transaction id if provided
@@ -619,7 +751,6 @@ class BookOrder(models.Model):
 
     def __str__(self):
         return f"{self.user.phone_number} - {self.content.title} ({self.delivery_type}) x{self.quantity}"
-
 
 class TicketType(models.Model):
     """Category / tariff for an event (e.g. CLASSIQUE, VIP)."""
@@ -649,7 +780,6 @@ class TicketType(models.Model):
         sold = Ticket.objects.filter(ticket_type=self).count()
         return max(0, self.quantity - (reserved or 0) - sold)
 
-
 class TicketReservation(models.Model):
     """Temporary reservation to hold tickets during payment window."""
     user = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -668,7 +798,6 @@ class TicketReservation(models.Model):
 
     def __str__(self):
         return f"Reservation {self.id} — {self.content.title} x{self.quantity}"
-
 
 class Ticket(models.Model):
     """Issued ticket linked to an order. Use UUID as public identifier."""

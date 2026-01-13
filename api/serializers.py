@@ -5,22 +5,30 @@ from django.utils.text import slugify
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "phone_number", "name", "role", "picture_url", "created_at"]
+        fields = "__all__"
 
 class ChurchSerializer(serializers.ModelSerializer):
-    owner = serializers.StringRelatedField(read_only=True)
     sub_churches = serializers.SerializerMethodField()
-
+    phone_number = serializers.CharField(read_only=True)
+    phone_number_1 = serializers.CharField(read_only=True)
+    phone_number_2 = serializers.CharField(read_only=True)
+    phone_number_3 = serializers.CharField(read_only=True)
+    phone_number_4 = serializers.CharField(read_only=True)
     class Meta:
         model = Church
-        fields = ["id","code","title","slug","status","description","logo_url",
-                  "primary_color","secondary_color","email","phone_number","website",
-                  "doc_url","is_verified","parent","sub_churches","created_at","owner"]
-        read_only_fields = ["status","code","slug","is_verified","created_at","owner"]
+        fields = "__all__"
+        read_only_fields = ["status", "code", "slug", "is_verified", "created_at"]
 
     def get_sub_churches(self, obj):
         qs = obj.sub_churches.all()
-        return [{"id": c.id, "title": c.title, "slug": c.slug, "status": c.status,"code":c.code,"logo_url":c.logo_url,"phone_number":c.phone_number,"is_verified":c.is_verified} for c in qs]
+        return [{"id": c.id, "title": c.title, "slug": c.slug, "status": c.status,"code":c.code,"logo_url":c.logo_url,
+                 "phone_number":c.phone_number,
+                 "phone_number_1": c.phone_number_1,
+                 "phone_number_2": c.phone_number_2,
+                 "phone_number_3": c.phone_number_3,
+                 "phone_number_4": c.phone_number_4,
+                 "is_verified":c.is_verified} for c in qs]
+
 
 
 class ChurchCreateSerializer(serializers.ModelSerializer):
@@ -29,7 +37,7 @@ class ChurchCreateSerializer(serializers.ModelSerializer):
         fields = [
             "title", "logo_url",
             "primary_color", "secondary_color",
-            "phone_number",
+            "phone_number_1", "phone_number_2", "phone_number_3", "phone_number_4",
             "city", "country","lang",
             "seats", "is_public"
         ]
@@ -40,7 +48,7 @@ class SubChurchCreateSerializer(serializers.ModelSerializer):
         fields = [
             "title", "logo_url", "parent",
             "primary_color", "secondary_color",
-            "phone_number",
+            "phone_number_1", "phone_number_2", "phone_number_3", "phone_number_4",
             "city", "country", "lang",
             "seats", "is_public",
         ]
@@ -153,6 +161,7 @@ class ChurchCommissionSummarySerializer(serializers.Serializer):
     members_count = serializers.IntegerField()
 
 class CommissionMemberSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source="user.id")
     name = serializers.CharField(source="user.name")
     phone_number = serializers.CharField(source="user.phone_number")
     picture_url = serializers.CharField(source="user.picture_url")
@@ -165,7 +174,6 @@ class CommissionMemberSerializer(serializers.ModelSerializer):
             "name",
             "phone_number",
             "picture_url",
-            "created_at"
         ]
 
 class ChurchCommissionMemberSerializer(serializers.ModelSerializer):
@@ -186,7 +194,8 @@ class CommissionWithMembersSerializer(serializers.ModelSerializer):
     def get_members(self, obj):
         church_id = self.context.get("church_id")
         qs = ChurchCommission.objects.filter(church_id=church_id, commission=obj)
-        return ChurchCommissionMemberSerializer(qs, many=True).data
+        # Return flattened user objects with role (id, name, phone_number, picture_url, role, created_at)
+        return CommissionMemberSerializer(qs, many=True).data
 
 class CategorySerializer(serializers.ModelSerializer):
 
@@ -254,6 +263,30 @@ class ContentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Content
         exclude = ["created_at", "updated_at"]
+
+    def validate(self, data):
+        # If capacity is provided in payload or already on instance, ensure tier sums fit
+        capacity = data.get("capacity")
+        # When updating, instance may have existing capacity
+        instance = getattr(self, "instance", None)
+        if capacity is None and instance is not None:
+            capacity = instance.capacity
+
+        has_tiers = data.get("has_ticket_tiers", None)
+        # If not provided, fall back to instance
+        if has_tiers is None and instance is not None:
+            has_tiers = instance.has_ticket_tiers
+
+        if has_tiers and capacity is not None:
+            # compute sum of provided/new tier quantities, falling back to instance values
+            def val(field):
+                return data.get(field, getattr(instance, field, None) if instance is not None else None) or 0
+
+            total = int(val("classic_quantity")) + int(val("vip_quantity")) + int(val("premium_quantity"))
+            if total > int(capacity):
+                raise serializers.ValidationError("Sum of tier quantities exceeds capacity")
+
+        return data
 
 class CommentSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
@@ -402,7 +435,10 @@ class BookOrderSerializer(serializers.ModelSerializer):
             "id", "user", "content", "delivery_type", "quantity", 
             "total_price", "payment_gateway", "payment_transaction_id", 
             "shipped", "delivered_at", "created_at","withdrawed",
-            "is_ticket", "ticket_type", "tickets"
+            "is_ticket", "ticket_type", "ticket_tier", "tickets",
+            "delivery_recipient_name", "delivery_address_line1", "delivery_address_line2",
+            "delivery_city", "delivery_postal_code", "delivery_country", "delivery_phone",
+            "shipping_method", "shipping_cost",
         ]
     
     def get_user(self, obj):
@@ -418,6 +454,13 @@ class BookOrderSerializer(serializers.ModelSerializer):
             "title": obj.content.title,
             "type": obj.content.type,
             "price": obj.content.price,
+            "has_ticket_tiers": obj.content.has_ticket_tiers,
+            "classic_price": obj.content.classic_price,
+            "classic_quantity": obj.content.classic_quantity,
+            "vip_price": obj.content.vip_price,
+            "vip_quantity": obj.content.vip_quantity,
+            "premium_price": obj.content.premium_price,
+            "premium_quantity": obj.content.premium_quantity,
             "church_id": obj.content.church.id,
             "church_title": obj.content.church.title
         }

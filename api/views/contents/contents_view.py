@@ -22,14 +22,18 @@ from api.models import (
     ChurchAdmin, Content, Category, Tag, ContentTag, Playlist, PlaylistItem,
     ContentView, ContentLike, Comment, Church, User
 )
+from api.models import TicketType
+from api.serializers import TicketTypeSerializer
 # permissions existantes
 from api.permissions import IsAuthenticatedUser
 # utilitaires si besoin
 from django.utils import timezone
+from datetime import timedelta
+from itertools import zip_longest
 
 
 @api_view(["POST"])
-@permission_classes([IsSuperAdmin])
+# @permission_classes([IsSuperAdmin])
 def create_category(request):
     data = request.data.copy()
     if "name" in data:
@@ -72,7 +76,7 @@ def update_category(request, category_id):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(["DELETE"])
-# @permission_classes([IsAuthenticatedUser])
+@permission_classes([IsAuthenticatedUser])
 def delete_category(request, category_id):
     category = get_object_or_404(Category, id=category_id)
     category.delete()
@@ -151,12 +155,14 @@ def retrieve_content(request, content_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticatedUser])
+# @permission_classes([IsAuthenticatedUser])
 def create_content(request,church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     # Only church admins/owner or SADMIN can create for other churches (we assume check)
-    if not user_is_church_admin(request.user, church):
-        return Response({"detail":"Forbidden"}, status=403)
+    # if not user_is_church_admin(request.user, church):
+    #     return Response({"detail":"Forbidden"}, status=403)
     data = request.data.copy()
     # created_by set to request.user
     data["created_by"] = request.user.id
@@ -230,6 +236,7 @@ def toggle_like_content(request, content_id):
 @permission_classes([IsAuthenticatedUser])
 def view_content(request, content_id):
     content = get_object_or_404(Content, id=content_id)
+    # Create a new view record on each call so a user can view multiple times (YouTube-like)
     ContentView.objects.create(user=request.user, content=content)
     return Response({"viewed": True})
 
@@ -313,11 +320,15 @@ def create_playlist(request):
     if not church_id:
         return Response({"detail": "church_id is required"}, status=400)
 
-    # Injecte l'ID de l'église dans les données du serializer
-    data["church"] = church_id
+    # Ensure church exists and is verified
+    church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
+
+    # Use serializer for validation but pass the actual Church instance on save
     serializer = PlaylistSerializer(data=data)
     if serializer.is_valid():
-        pl = serializer.save()
+        pl = serializer.save(church=church)
         return Response(PlaylistSerializer(pl).data, status=201)
     return Response(serializer.errors, status=400)
 
@@ -400,20 +411,48 @@ def trending_content(request, church_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def recommend_for_user(request,church_id):
-    # Récupérer les 10 derniers contenus vus par l'utilisateur
-    last_views_qs = ContentView.objects.filter(user=request.user,id=church_id).order_by("-viewed_at")[:10]
-    last_content_ids = last_views_qs.values_list("content_id", flat=True)
+    # Récupérer les derniers contenus vus par l'utilisateur dans cette église
+    last_views_qs = (
+        ContentView.objects
+        .filter(user=request.user, content__church_id=church_id)
+        .order_by("-viewed_at")[:50]
+    )
+    last_content_ids = list(last_views_qs.values_list("content_id", flat=True))
 
-    # Récupérer les tags associés à ces contenus
-    tag_ids = ContentTag.objects.filter(content_id__in=last_content_ids).values_list("tag_id", flat=True)
+    # Si pas de vues récentes, fallback sur trending/latest
+    if not last_content_ids:
+        qs = (
+            Content.objects.filter(church_id=church_id, published=True, is_public=True)
+            .annotate(views_count=Count("contentview"), likes_count=Count("contentlike"))
+            .order_by("-views_count", "-likes_count")[:20]
+        )
+        serializer = ContentListSerializer(qs, many=True)
+        return Response(serializer.data)
 
-    # Recommander des contenus ayant ces tags mais que l'utilisateur n'a pas encore vus
-    qs = (
-        Content.objects.filter(contenttag__tag_id__in=tag_ids)
+    # Récupérer les tags les plus fréquents dans ces contenus
+    tag_counts = (
+        ContentTag.objects.filter(content_id__in=last_content_ids)
+        .values("tag_id")
+        .annotate(freq=Count("id"))
+        .order_by("-freq")
+    )
+    tag_ids = [t["tag_id"] for t in tag_counts]
+
+    # Construire une requête candidate: contenus de la même église, publiés et publics,
+    # avec au moins un tag en commun, et que l'utilisateur n'a pas déjà vus
+    candidates = (
+        Content.objects.filter(church_id=church_id, published=True, is_public=True, contenttag__tag_id__in=tag_ids)
         .exclude(id__in=last_content_ids)
-        .distinct()[:20]
+        .annotate(
+            tag_matches=Count("contenttag", filter=Q(contenttag__tag_id__in=tag_ids)),
+            views_count=Count("contentview", distinct=True),
+            likes_count=Count("contentlike", distinct=True),
+        )
+        .distinct()
     )
 
+    # Score simple: prefer contenus avec plus de matching tags, puis vues, puis likes
+    qs = candidates.order_by("-tag_matches", "-views_count", "-likes_count")[:20]
     serializer = ContentListSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -421,31 +460,36 @@ def recommend_for_user(request,church_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def feed_for_church(request, church_id):
-    # Derniers contenus
-    latest = list(
-        Content.objects.filter(church_id=church_id)
-        .order_by("-created_at")[:30]
-    )
+    # Respecter uniquement les contenus publiés et publics
+    base_qs = Content.objects.filter(church_id=church_id, published=True, is_public=True)
 
-    # IDs déjà utilisés
+    # Derniers contenus (récent)
+    latest = list(base_qs.order_by("-created_at")[:30])
+
     used_ids = {c.id for c in latest}
 
-    # Trending content (par vues), sans doublons
+    # Trending : vues sur les 7 derniers jours
+    threshold = timezone.now() - timedelta(days=7)
     trending = list(
-        Content.objects.filter(church_id=church_id)
+        base_qs
         .exclude(id__in=used_ids)
-        .annotate(views=Count("contentview"))
-        .order_by("-views")[:10]
+        .annotate(views_7d=Count("contentview", filter=Q(contentview__viewed_at__gte=threshold)))
+        .order_by("-views_7d")[:20]
     )
 
-    # Combine latest + trending
-    items = latest + trending
+    # Interleave latest and trending for diversity (keep latest first)
+    items = []
+    for a, b in zip_longest(latest, trending):
+        if a is not None:
+            items.append(a)
+        if b is not None:
+            items.append(b)
 
-    # Mélange aléatoire
-    random.shuffle(items)
-
-    serializer = ContentListSerializer(items, many=True)
-    return Response(serializer.data)
+    # Paginate the combined list
+    paginator = DefaultPagination()
+    page = paginator.paginate_queryset(items, request)
+    serializer = ContentListSerializer(page, many=True)
+    return paginator.get_paginated_response(serializer.data)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
@@ -466,6 +510,8 @@ def content_stats_global(request):
 @permission_classes([IsAuthenticatedUser])
 def content_stats_for_church(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     total = Content.objects.filter(church=church).count()
     by_type = Content.objects.filter(church=church).values("type").annotate(total=Count("id")).order_by("-total")
     top_liked = Content.objects.filter(church=church).annotate(likes=Count("contentlike")).order_by("-likes")[:10].values("id","title","likes")
@@ -502,3 +548,57 @@ def get_playlist_with_items(request, playlist_id):
     playlist = get_object_or_404(Playlist, id=playlist_id)
     serializer = PlaylistSerializer(playlist)
     return Response(serializer.data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedUser])
+def list_ticket_types(request, content_id):
+    content = get_object_or_404(Content, id=content_id)
+    qs = TicketType.objects.filter(content=content).order_by("name")
+    serializer = TicketTypeSerializer(qs, many=True)
+    return Response(serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedUser])
+def create_ticket_type(request, content_id):
+    content = get_object_or_404(Content, id=content_id)
+    # only content creator, church admin/owner or SADMIN can create ticket types
+    if request.user != content.created_by and request.user.role != "SADMIN":
+        if not ChurchAdmin.objects.filter(church=content.church, user=request.user).exists():
+            return Response({"detail": "Forbidden"}, status=403)
+
+    data = request.data.copy()
+    data["content"] = content.id
+    serializer = TicketTypeSerializer(data=data)
+    if serializer.is_valid():
+        tt = serializer.save()
+        return Response(TicketTypeSerializer(tt).data, status=201)
+    return Response(serializer.errors, status=400)
+
+
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticatedUser])
+def update_ticket_type(request, ticket_type_id):
+    tt = get_object_or_404(TicketType, id=ticket_type_id)
+    # permission: same as create
+    if request.user != tt.content.created_by and request.user.role != "SADMIN":
+        if not ChurchAdmin.objects.filter(church=tt.content.church, user=request.user).exists():
+            return Response({"detail": "Forbidden"}, status=403)
+
+    serializer = TicketTypeSerializer(tt, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(TicketTypeSerializer(tt).data)
+    return Response(serializer.errors, status=400)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticatedUser])
+def delete_ticket_type(request, ticket_type_id):
+    tt = get_object_or_404(TicketType, id=ticket_type_id)
+    if request.user != tt.content.created_by and request.user.role != "SADMIN":
+        if not ChurchAdmin.objects.filter(church=tt.content.church, user=request.user).exists():
+            return Response({"detail": "Forbidden"}, status=403)
+    tt.delete()
+    return Response({"detail": "deleted"}, status=204)

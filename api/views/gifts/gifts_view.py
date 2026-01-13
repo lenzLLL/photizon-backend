@@ -2,12 +2,13 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
-from api.models import BookOrder, ChurchAdmin, Content, Donation, DonationCategory, Church, User, TicketType
+from django.utils.dateparse import parse_date
+from api.models import BookOrder, ChurchAdmin, Content, Donation, DonationCategory, Church, User, TicketType, Payment
 from api.serializers import BookOrderSerializer, DonationSerializer, DonationCategorySerializer, TicketSerializer
-from api.permissions import IsAuthenticatedUser, user_is_church_owner
+from api.permissions import IsAuthenticatedUser, user_is_church_owner, IsSuperAdmin
 
 # ----------------------
 # DonationCategory CRUD
@@ -59,9 +60,9 @@ def delete_category_d(request, category_id):
 @permission_classes([IsAuthenticated])
 def make_donation(request, church_id):
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     category_id = request.data.get("category")
-    if user_is_church_owner(request.user, church):
-        return Response({"error": "Church owners cannot make donations to their own church."}, status=403)
     category = None
     if category_id:
         category = get_object_or_404(DonationCategory, id=category_id)
@@ -104,6 +105,8 @@ def list_church_donations(request, church_id, include_subchurches=False):
     Si include_subchurches=True, inclut les sous-églises
     """
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     qs = Donation.objects.filter(church__in=[church.id])
 
     if include_subchurches:
@@ -127,6 +130,8 @@ def church_donation_stats(request, church_id, include_subchurches=True):
     - total par année
     """
     church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
     qs = Donation.objects.filter(church=church)
 
     if include_subchurches:
@@ -158,6 +163,115 @@ def church_donation_stats(request, church_id, include_subchurches=True):
         "total_sum": total_sum,
         "monthly": monthly,
         "yearly": yearly
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def church_order_stats(request, church_id, include_subchurches=True):
+    """Return order stats for a given church: grand total, monthly (12 months), yearly, and breakdown by content type/is_ticket."""
+    church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
+
+    # Base queryset: orders for this church
+    if include_subchurches:
+        sub_ids = list(church.sub_churches.all().values_list("id", flat=True))
+        qs = BookOrder.objects.filter(content__church__id__in=[church.id, *sub_ids])
+    else:
+        qs = BookOrder.objects.filter(content__church=church)
+
+    grand_total = qs.aggregate(total=Sum("total_price"))["total"] or 0
+
+    # Monthly totals for last 12 months
+    monthly = {}
+    now = timezone.now()
+    for i in range(12):
+        d = now - relativedelta(months=i)
+        month_sum = qs.filter(created_at__year=d.year, created_at__month=d.month).aggregate(sum=Sum("total_price"))["sum"] or 0
+        monthly[f"{d.year}-{d.month:02d}"] = month_sum
+
+    # Yearly totals
+    yearly = {}
+    years = qs.dates("created_at", "year")
+    for y in years:
+        year_sum = qs.filter(created_at__year=y.year).aggregate(sum=Sum("total_price"))["sum"] or 0
+        yearly[str(y.year)] = year_sum
+
+    # Breakdown by content type and by is_ticket
+    by_type = (
+        qs.values("content__type").annotate(total=Sum("total_price"), count=Sum("quantity"))
+    )
+    type_summary = {item["content__type"]: {"total": item["total"] or 0, "count": item["count"] or 0} for item in by_type}
+
+    by_ticket = (
+        qs.values("is_ticket").annotate(total=Sum("total_price"), count=Sum("quantity"))
+    )
+    ticket_summary = {str(item["is_ticket"]): {"total": item["total"] or 0, "count": item["count"] or 0} for item in by_ticket}
+
+    # Top contents by revenue
+    top_contents_qs = (
+        qs.values("content__id", "content__title").annotate(revenue=Sum("total_price")).order_by("-revenue")[:10]
+    )
+    top_contents = [
+        {"id": c["content__id"], "title": c["content__title"], "revenue": c["revenue"] or 0} for c in top_contents_qs
+    ]
+
+    return Response({
+        "church_id": church.id,
+        "church_title": church.title,
+        "grand_total": grand_total,
+        "monthly": monthly,
+        "yearly": yearly,
+        "by_type": type_summary,
+        "by_ticket": ticket_summary,
+        "top_contents": top_contents,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def church_payment_stats(request, church_id, include_subchurches=True):
+    """Return payment stats for a church: daily, monthly (last 12 months), yearly and grand total."""
+    church = get_object_or_404(Church, id=church_id)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
+
+    # Base queryset: payments for this church (optionally include subchurches)
+    if include_subchurches:
+        sub_ids = list(church.sub_churches.all().values_list("id", flat=True))
+        qs = Payment.objects.filter(church__id__in=[church.id, *sub_ids])
+    else:
+        qs = Payment.objects.filter(church=church)
+
+    grand_total = qs.aggregate(total=Sum("amount"))["total"] or 0
+
+    # Daily total (today)
+    today = timezone.now().date()
+    daily_total = qs.filter(created_at__date=today).aggregate(total=Sum("amount"))["total"] or 0
+
+    # Monthly totals for last 12 months
+    monthly = {}
+    now = timezone.now()
+    for i in range(12):
+        d = now - relativedelta(months=i)
+        month_sum = qs.filter(created_at__year=d.year, created_at__month=d.month).aggregate(sum=Sum("amount"))["sum"] or 0
+        monthly[f"{d.year}-{d.month:02d}"] = month_sum
+
+    # Yearly totals
+    yearly = {}
+    years = qs.dates("created_at", "year")
+    for y in years:
+        year_sum = qs.filter(created_at__year=y.year).aggregate(sum=Sum("amount"))["sum"] or 0
+        yearly[str(y.year)] = year_sum
+
+    return Response({
+        "church_id": church.id,
+        "church_title": church.title,
+        "grand_total": grand_total,
+        "daily": daily_total,
+        "monthly": monthly,
+        "yearly": yearly,
     })
 
 
@@ -226,6 +340,132 @@ def admin_all_churches_donation_stats(request):
         "yearly_totals_all_churches": yearly_totals_all_churches
     })
 
+
+@api_view(["GET"])
+@permission_classes([IsSuperAdmin])
+def admin_all_churches_payment_stats(request):
+    """Aggregate payment stats across all churches (per-church totals, monthly and yearly breakdowns, grand total)."""
+    # Optional filters from query params
+    gateway = request.query_params.get("gateway")
+    status = request.query_params.get("status")
+    start_date = request.query_params.get("start_date")
+    end_date = request.query_params.get("end_date")
+
+    all_churches = Church.objects.all()
+    result = []
+    grand_total = 0
+
+    # Prepare last 12 months buckets
+    now = timezone.now()
+    last_12_months = [(now - relativedelta(months=i)).replace(day=1) for i in range(12)]
+    monthly_totals_all_churches = {d.strftime("%Y-%m"): 0 for d in last_12_months}
+
+    # Prepare years existing for payments
+    all_years = Payment.objects.dates("created_at", "year")
+    yearly_totals_all_churches = {y.year: 0 for y in all_years}
+
+    for church in all_churches:
+        qs = Payment.objects.filter(church__in=[church.id, *church.sub_churches.all().values_list("id", flat=True)])
+        # apply filters
+        if gateway:
+            qs = qs.filter(gateway__iexact=gateway)
+        if status:
+            qs = qs.filter(status__iexact=status)
+        if start_date:
+            sd = parse_date(start_date)
+            if sd:
+                qs = qs.filter(created_at__date__gte=sd)
+        if end_date:
+            ed = parse_date(end_date)
+            if ed:
+                qs = qs.filter(created_at__date__lte=ed)
+        total_sum = qs.aggregate(total=Sum("amount"))["total"] or 0
+        grand_total += total_sum
+
+        # Monthly per church
+        monthly = {}
+        for d in last_12_months:
+            month_qs = qs.filter(created_at__year=d.year, created_at__month=d.month)
+            month_sum = month_qs.aggregate(sum=Sum("amount"))["sum"] or 0
+            monthly[d.strftime("%Y-%m")] = month_sum
+            monthly_totals_all_churches[d.strftime("%Y-%m")] += month_sum
+
+        # Yearly per church
+        yearly = {}
+        for y in all_years:
+            year_qs = qs.filter(created_at__year=y.year)
+            year_sum = year_qs.aggregate(sum=Sum("amount"))["sum"] or 0
+            yearly[str(y.year)] = year_sum
+            yearly_totals_all_churches[y.year] += year_sum
+
+        result.append({
+            "church_id": church.id,
+            "church_title": church.title,
+            "total_sum": total_sum,
+            "monthly": monthly,
+            "yearly": yearly,
+        })
+
+    return Response({
+        "grand_total": grand_total,
+        "churches": result,
+        "monthly_totals_all_churches": monthly_totals_all_churches,
+        "yearly_totals_all_churches": yearly_totals_all_churches,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsSuperAdmin])
+def admin_payments_summary(request):
+    """Return global payment sums: today, last 12 months (per month), per year, and grand total."""
+    # filters
+    gateway = request.query_params.get("gateway")
+    status = request.query_params.get("status")
+    start_date = request.query_params.get("start_date")
+    end_date = request.query_params.get("end_date")
+
+    qs = Payment.objects.all()
+    if gateway:
+        qs = qs.filter(gateway__iexact=gateway)
+    if status:
+        qs = qs.filter(status__iexact=status)
+    if start_date:
+        sd = parse_date(start_date)
+        if sd:
+            qs = qs.filter(created_at__date__gte=sd)
+    if end_date:
+        ed = parse_date(end_date)
+        if ed:
+            qs = qs.filter(created_at__date__lte=ed)
+
+    grand_total = qs.aggregate(total=Sum("amount"))["total"] or 0
+
+    # Daily total (today)
+    today = timezone.now().date()
+    daily_total = qs.filter(created_at__date=today).aggregate(total=Sum("amount"))["total"] or 0
+
+    # Monthly totals for last 12 months
+    monthly = {}
+    now = timezone.now()
+    for i in range(12):
+        d = now - relativedelta(months=i)
+        month_sum = qs.filter(created_at__year=d.year, created_at__month=d.month).aggregate(sum=Sum("amount"))["sum"] or 0
+        monthly[f"{d.year}-{d.month:02d}"] = month_sum
+
+    # Yearly totals
+    yearly = {}
+    years = qs.dates("created_at", "year")
+    for y in years:
+        year_sum = qs.filter(created_at__year=y.year).aggregate(sum=Sum("amount"))["sum"] or 0
+        yearly[str(y.year)] = year_sum
+
+    return Response({
+        "grand_total": grand_total,
+        "daily": daily_total,
+        "monthly": monthly,
+        "yearly": yearly,
+    })
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def admin_book_order_stats(request):
@@ -279,14 +519,29 @@ def create_book_order(request, book_id):
     # Ticket-related params
     is_ticket = bool(request.data.get("is_ticket", False))
     ticket_type_id = request.data.get("ticket_type_id")
+    ticket_tier = request.data.get("ticket_tier")  # CLASSIC | VIP | PREMIUM
     shipped = True if order_type.upper() == "DIGITAL" else False
     delivery_at = timezone.now() if shipped else None
-    if user_is_church_owner(request.user, content.church):
-        return Response({"error": "Church owners cannot order their own books."}, status=403)
-    # If this is a ticket order, enforce event type and availability
-    if is_ticket:
-        if content.type != "EVENT":
-            return Response({"error": "Tickets can only be purchased for EVENTS."}, status=400)
+
+    # Events must be ticket orders. Enforce and validate ticket_tier when applicable.
+    if content.type == "EVENT":
+        is_ticket = True
+        # If the event uses ticket tiers, require ticket_tier in request
+        if getattr(content, "has_ticket_tiers", False):
+            if not ticket_tier:
+                return Response({"error": "ticket_tier is required for this event (CLASSIC, VIP, PREMIUM)"}, status=400)
+            tier = (ticket_tier or "").upper()
+            if tier not in ["CLASSIC", "VIP", "PREMIUM"]:
+                return Response({"error": "Invalid ticket_tier. Use CLASSIC, VIP or PREMIUM."}, status=400)
+            # check availability immediately for friendlier error
+            qty_field = {"CLASSIC": "classic_quantity", "VIP": "vip_quantity", "PREMIUM": "premium_quantity"}.get(tier)
+            avail = getattr(content, qty_field, None)
+            if avail is not None and int(quantity) > int(avail):
+                return Response({"error": f"Not enough tickets available for tier {tier}. Available: {avail}"}, status=400)
+        else:
+            # If no tiers, check overall capacity
+            if content.capacity is not None and (content.capacity - (content.tickets_sold or 0)) < int(quantity):
+                return Response({"error": "Not enough tickets available for this event."}, status=400)
 
     order_kwargs = dict(
         user=request.user,
@@ -296,11 +551,28 @@ def create_book_order(request, book_id):
         shipped=shipped,
         delivered_at=delivery_at,
     )
+    # Optional delivery info (useful for PHYSICAL delivery_type)
+    delivery_fields = [
+        "delivery_recipient_name",
+        "delivery_address_line1",
+        "delivery_address_line2",
+        "delivery_city",
+        "delivery_postal_code",
+        "delivery_country",
+        "delivery_phone",
+        "shipping_method",
+        "shipping_cost",
+    ]
+    for f in delivery_fields:
+        if f in request.data:
+            order_kwargs[f] = request.data.get(f)
     if is_ticket:
         order_kwargs["is_ticket"] = True
         if ticket_type_id:
             tt = get_object_or_404(TicketType, id=ticket_type_id)
             order_kwargs["ticket_type"] = tt
+        if ticket_tier:
+            order_kwargs["ticket_tier"] = ticket_tier.upper()
 
     order = BookOrder.objects.create(**order_kwargs)
 
@@ -358,6 +630,16 @@ def book_order_detail(request, order_id):
         serializer = BookOrderSerializer(order)
         return Response(serializer.data)
 
+@api_view(["PUT", "PATCH"])
+@permission_classes([IsAuthenticated])
+def update_book_order(request, order_id):
+    """Update an order partially or fully. Same validation as PATCH in detail view."""
+    order = get_object_or_404(BookOrder, id=order_id)
+    serializer = BookOrderSerializer(order, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=400)
     if request.method == "PATCH":
         serializer = BookOrderSerializer(order, data=request.data, partial=True)
         if serializer.is_valid():
@@ -376,9 +658,16 @@ def church_financial_overview(request, church_id):
         church = Church.objects.get(id=church_id)
     except Church.DoesNotExist:
         return Response({"error": "Cette église n'existe pas."}, status=404)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
     # 📌 Membres = Users dont current_church = church
-    member_users = User.objects.filter(current_church=church)
+    # inclut aussi le owner et les users présents dans ChurchAdmin
+    member_users = User.objects.filter(
+        Q(current_church=church) |
+        Q(id=getattr(church, "owner_id", None)) |
+        Q(church_roles__church=church)
+    ).distinct()
 
     # ==========================
     #   1. ORDERS DES MEMBRES
@@ -502,9 +791,11 @@ def withdraw_all_donations_view(request, church_id):
         church = Church.objects.get(id=church_id)
     except Church.DoesNotExist:
         return Response({"detail": "Church not found"}, status=404)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
-    # Vérifier que l’utilisateur est admin de cette église
-    if not ChurchAdmin.objects.filter(church=church, user=request.user).exists():
+    # Vérifier que l’utilisateur est admin de cette église ou le owner
+    if not (ChurchAdmin.objects.filter(church=church, user=request.user).exists() or request.user == getattr(church, "owner", None)):
         return Response({"detail": "Not authorized"}, status=403)
 
     donations = Donation.objects.filter(church=church, withdrawed=False)
@@ -524,9 +815,11 @@ def withdraw_all_orders_view(request, church_id):
         church = Church.objects.get(id=church_id)
     except Church.DoesNotExist:
         return Response({"detail": "Church not found"}, status=404)
+    if not getattr(church, "is_verified", False):
+        return Response({"detail": "Church not verified"}, status=403)
 
-    # Vérifier que l’utilisateur est admin de cette église
-    if not ChurchAdmin.objects.filter(church=church, user=request.user).exists():
+    # Vérifier que l’utilisateur est admin de cette église ou le owner
+    if not (ChurchAdmin.objects.filter(church=church, user=request.user).exists() or request.user == getattr(church, "owner", None)):
         return Response({"detail": "Not authorized"}, status=403)
 
     orders = BookOrder.objects.filter(content__church=church, withdrawed=False)
