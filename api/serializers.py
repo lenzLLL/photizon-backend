@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation
+from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation, Receipt
 from django.utils.text import slugify
 
 class UserSerializer(serializers.ModelSerializer):
@@ -486,3 +486,16 @@ class TicketReservationSerializer(serializers.ModelSerializer):
     class Meta:
         model = TicketReservation
         fields = ["id", "user", "content", "ticket_type", "quantity", "reserved_at", "expires_at"]
+
+
+class ReceiptSerializer(serializers.ModelSerializer):
+    church_title = serializers.CharField(source="church.title", read_only=True, allow_null=True)
+    content_title = serializers.CharField(source="content.title", read_only=True, allow_null=True)
+    
+    class Meta:
+        model = Receipt
+        fields = [
+            "id", "church", "church_title", "content", "content_title",
+            "amount", "description", "issued_at", "created_at"
+        ]
+        read_only_fields = ["id", "issued_at", "created_at", "church"]

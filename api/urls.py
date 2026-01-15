@@ -4,11 +4,17 @@ from api.views.contents.contents_view import add_comment, add_to_playlist, conte
 from api.views.contents.contents_view import list_ticket_types, create_ticket_type, update_ticket_type, delete_ticket_type
 from .views.auth.auth_views import change_subscription_plan, check_subscription_status, delete_subscription, get_church_subscription, list_subscriptions, renew_subscription, send_otp_view, toggle_subscription_status, update_subscription, verify_otp_view
 from .views.crud.crud_views import churches_metrics,create_subchurch_view, deny_user,filter_church_members,get_current_user, join_church, leave_church, leave_commission, unban_user,update_church_by_owner,list_owners,list_users,delete_church,update_church,delete_self,update_self,delete_self,list_churches,create_church_view,list_my_churches,verify_church_view,add_church_admin,list_sub_churches
+from .views.crud.receipt_views import ReceiptViewSet, create_receipt, get_receipt, update_receipt, delete_receipt, list_all_receipts
 from .views.gifts.gifts_view import (
     admin_book_order_stats, book_order_detail,church_financial_overview, church_order_stats, create_book_order, list_categories_d, create_category_d, retrieve_category_d, update_book_order, update_category_d, delete_category_d,
     make_donation, list_user_donations, list_church_donations,
     church_donation_stats, admin_all_churches_donation_stats, user_book_orders, withdraw_all_donations_view, withdraw_all_orders_view, complete_book_order, church_payment_stats, admin_all_churches_payment_stats, admin_payments_summary
 )
+from rest_framework.routers import DefaultRouter
+
+# Router for Receipt ViewSet
+router = DefaultRouter()
+router.register(r'receipts', ReceiptViewSet, basename='receipt')
 urlpatterns = [
     path("auth/send-otp/", send_otp_view),
     path("auth/verify-otp/", verify_otp_view),
@@ -129,6 +135,15 @@ urlpatterns = [
     path("admin/book-orders/stats/", admin_book_order_stats, name="admin-book-order-stats"),
     path("church/<str:church_id>/withdrawed/",church_financial_overview, name="church_gift"),
     path("church/<int:church_id>/withdraw-all-donations/", withdraw_all_donations_view),
-    path("church/<int:church_id>/withdraw-all-orders/", withdraw_all_orders_view)
+    path("church/<int:church_id>/withdraw-all-orders/", withdraw_all_orders_view),
+    
+    # Receipt endpoints
+    path("receipts/all/", list_all_receipts, name="list-all-receipts"),
+    path("receipts/create/<str:church_id>/", create_receipt, name="create-receipt"),
+    path("receipts/<str:receipt_id>/", get_receipt, name="get-receipt"),
+    path("receipts/<str:receipt_id>/update/", update_receipt, name="update-receipt"),
+    path("receipts/<str:receipt_id>/delete/", delete_receipt, name="delete-receipt"),
 ]
+
+urlpatterns += router.urls
 # eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY0MTE3OTU3LCJpYXQiOjE3NjM1MTMxNTcsImp0aSI6IjQ0OTgyZDY2MWQzNTQxYmQ5YzlmOWY1NmVkZmVjMWE2IiwidXNlcl9pZCI6IjEifQ.eQVbvH6UMV2Ir8Y-AIIwcfetTXz3tngQi60xARO6LpM

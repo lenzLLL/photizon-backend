@@ -820,3 +820,32 @@ class Ticket(models.Model):
     def __str__(self):
         ttype = self.ticket_type.name if self.ticket_type else "--"
         return f"Ticket {self.id} — {self.content.title} ({ttype})"
+
+class Receipt(models.Model):
+    """Receipt model for transactions. Can be linked to an event (Content) or standalone."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    church = models.ForeignKey("Church", on_delete=models.CASCADE, related_name="receipts")
+    
+    # Optional links to specific transactions
+    content = models.ForeignKey("Content", on_delete=models.SET_NULL, null=True, blank=True, related_name="receipts")    
+    
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    
+    description = models.TextField(blank=True)
+    
+    issued_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+
+    class Meta:
+        ordering = ["-issued_at"]
+        indexes = [
+            models.Index(fields=["church"]),
+            models.Index(fields=["-issued_at"]),
+        ]
+
+    def __str__(self):
+        who = self.user.phone_number if self.user else (self.church.title if self.church else "Unknown")
+        return f"Receipt {self.receipt_number} — {who} — {self.amount} {self.currency}"
