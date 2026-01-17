@@ -1,9 +1,8 @@
-from django.db import models
+from django.db import models, transaction, IntegrityError
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 from django.utils.text import slugify
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.db.models import F, Sum
 from django.apps import apps
 import uuid
@@ -28,13 +27,12 @@ class Church(models.Model):
         models.Index(fields=["is_public"]),
        ]
     # Identification
-    code = models.BigAutoField(
-        unique=True,
-        editable=False,
+    code = models.BigIntegerField(
         null=True,
         blank=True,
-        db_index=True,
-        default=1,
+        unique=True,
+        editable=False,
+        default=1
     )
     title = models.CharField(max_length=100, unique=True, db_index=True)
     slug = models.SlugField(blank=True,max_length=120)
@@ -113,15 +111,33 @@ class Church(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
- # Exemple: A9F73B12E1
-        # First save to ensure `id` is assigned
-        super().save(*args, **kwargs)
-        # Ensure `code` mirrors `id` on initial creation
+        
         if not self.code:
-            # update at DB level to avoid recursion into save()
-            type(self).objects.filter(pk=self.pk).update(code=self.id)
-            # update instance in memory
-            self.code = self.id
+            # Get all churches with code, sort descending, take first
+            existing = Church.objects.filter(code__isnull=False).values_list('code', flat=True).order_by('-code')
+            
+            if existing:
+                max_code = existing[0]
+                self.code = max_code + 1
+            else:
+                self.code = 1
+        
+        # Save with retry logic for conflicts
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                with transaction.atomic():
+                    super().save(*args, **kwargs)
+                return  # Success!
+            except IntegrityError:
+                if attempt == max_attempts - 1:
+                    raise
+                # Retry with next code
+                if not self.code:
+                    existing = Church.objects.filter(code__isnull=False).values_list('code', flat=True).order_by('-code')
+                    self.code = (existing[0] + 1) if existing else 1
+                else:
+                    self.code = self.code + 1
     def __str__(self):
         return self.title
 

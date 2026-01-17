@@ -46,10 +46,10 @@ def send_otp_whatsapp(phone):
         }
     }
 
-    res = requests.post(url, json=payload, headers=headers)
+    # res = requests.post(url, json=payload, headers=headers)
     print(otp_value)
-    if res.status_code >= 400:
-        return {"status": "error", "message": "Erreur WhatsApp", "details": res.json()}
+    # if res.status_code >= 400:
+    #     return {"status": "error", "message": "Erreur WhatsApp", "details": res.json()}
     
     return {"status": "success"}
 
