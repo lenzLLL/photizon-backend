@@ -18,6 +18,9 @@ class Church(models.Model):
         ("APPROVED", "Approuvée"),
         ("REJECTED", "Rejetée"),
     )
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
     class Meta:
         indexes = [
         models.Index(fields=["status"]),
@@ -25,11 +28,13 @@ class Church(models.Model):
         models.Index(fields=["is_public"]),
        ]
     # Identification
-    code = models.BigIntegerField(
-        null=True,
-        blank=True,
+    code = models.BigAutoField(
         unique=True,
         editable=False,
+        null=True,
+        blank=True,
+        db_index=True,
+        default=1,
     )
     title = models.CharField(max_length=100, unique=True, db_index=True)
     slug = models.SlugField(blank=True,max_length=120)
@@ -152,6 +157,7 @@ class UserManager(BaseUserManager):
 # -----------------------------------------------------
 
 class User(AbstractBaseUser, PermissionsMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, blank=True)
     phone_number = models.CharField(max_length=50, unique=True, db_index=True)
     picture_url = models.URLField(blank=True, null=True)
@@ -175,6 +181,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     city = models.CharField(max_length=100, blank=True)
     country = models.CharField(max_length=100, blank=True)
     address = models.CharField(max_length=250, blank=True)
+    email = models.CharField(max_length=250, blank=True,unique=True, null=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)  # indispensable pour l'admin Django
     created_at = models.DateTimeField(auto_now_add=True)
@@ -310,10 +317,12 @@ class Tag(models.Model):
     slug = models.SlugField(unique=True)
 
 class ContentTag(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     content = models.ForeignKey(Content, on_delete=models.CASCADE)
     tag = models.ForeignKey(Tag, on_delete=models.CASCADE)
 
 class Playlist(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     church = models.ForeignKey(Church, on_delete=models.CASCADE)
     title = models.CharField(max_length=150)
     description = models.TextField(blank=True)
@@ -321,31 +330,37 @@ class Playlist(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 class PlaylistItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     playlist = models.ForeignKey(Playlist, on_delete=models.CASCADE)
     content = models.ForeignKey(Content, on_delete=models.CASCADE)
     position = models.PositiveIntegerField(default=0)
 
 class ContentView(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     content = models.ForeignKey(Content, on_delete=models.CASCADE)
     viewed_at = models.DateTimeField(auto_now_add=True)
 
 class ContentLike(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     content = models.ForeignKey(Content, on_delete=models.CASCADE)
     liked_at = models.DateTimeField(auto_now_add=True)
 
 class Comment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     content = models.ForeignKey(Content, on_delete=models.CASCADE)
     text = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
 class Category(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(unique=True)
 
 class OTP(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     phone = models.CharField(max_length=20, unique=True)
     otp = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -363,10 +378,12 @@ class OTP(models.Model):
         return (timezone.now() - self.last_sent_at).total_seconds() > cooldown
 
 class ChurchAdmin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ROLE_CHOICES = [
         ("OWNER", "Owner"),
         ("ADMIN", "Admin"),
         ("MODERATOR", "Moderator"),
+        ("PASTOR", "Pastor"),
     ]
 
     church = models.ForeignKey("Church", on_delete=models.CASCADE, related_name="admins")
@@ -381,6 +398,7 @@ class ChurchAdmin(models.Model):
         return f"{self.user.phone_number} @ {self.church.title} ({self.role})"
 
 class Subscription(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     PLAN_CHOICES = [
         ("FREE", "Free"),
         ("STARTER", "Starter"),
@@ -402,6 +420,7 @@ class Subscription(models.Model):
 
 # Extend Notification to hold channel info + send status
 class Notification(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     NOTIF_TYPES = [
         ('OTP', 'Code OTP'),
         ('DOC_REQUEST', 'Demande de documents'),
@@ -445,6 +464,7 @@ class Notification(models.Model):
         return f"{phone} • {self.title}"
 
 class Commission(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
     eng_name = models.CharField(max_length=255, unique=True,default="")
     logo = models.URLField(null=True, blank=True)
@@ -455,6 +475,7 @@ class Commission(models.Model):
         return self.name
 
 class ChurchCommission(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ROLE_CHOICES = [
         ("MEMBER", "Member"),
         ("LEADER", "Leader"),
@@ -476,7 +497,7 @@ class ChurchCommission(models.Model):
         return f"{self.user.phone_number} → {self.commission.name} @ {self.church.title}"
 
 class Deny(models.Model):
-
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     church = models.ForeignKey("Church", on_delete=models.CASCADE, related_name="denied_members")
     user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="denied_in_churches")
     reason = models.TextField(blank=True)
@@ -489,6 +510,7 @@ class Deny(models.Model):
         return f"{self.user.phone_number} denied from {self.church.title}"
     
 class DonationCategory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
 
@@ -498,7 +520,7 @@ class DonationCategory(models.Model):
         return f"{self.name}"
     
 class Donation(models.Model):
-
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     PAYMENT_GATEWAYS = [
         ("MOMO", "Mobile Money"),
         ("OM", "Orange Money"),
@@ -576,7 +598,7 @@ class Payment(models.Model):
         return f"Payment {self.id} — {who} — {self.amount} {self.currency} ({self.status})"
 
 class BookOrder(models.Model):
-
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     PAYMENT_CHOICES = [
         ("MOMO", "Mobile Money"),
         ("OM", "Orange Money"),
@@ -754,6 +776,7 @@ class BookOrder(models.Model):
 
 class TicketType(models.Model):
     """Category / tariff for an event (e.g. CLASSIQUE, VIP)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     content = models.ForeignKey("Content", on_delete=models.CASCADE, related_name="ticket_types")
     name = models.CharField(max_length=100)
     price = models.DecimalField(max_digits=12, decimal_places=2)
@@ -782,6 +805,7 @@ class TicketType(models.Model):
 
 class TicketReservation(models.Model):
     """Temporary reservation to hold tickets during payment window."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     content = models.ForeignKey("Content", on_delete=models.CASCADE)
     ticket_type = models.ForeignKey("TicketType", on_delete=models.SET_NULL, null=True, blank=True)
@@ -849,3 +873,159 @@ class Receipt(models.Model):
     def __str__(self):
         who = self.user.phone_number if self.user else (self.church.title if self.church else "Unknown")
         return f"Receipt {self.receipt_number} — {who} — {self.amount} {self.currency}"
+
+# =====================================================
+# Chat Model
+# =====================================================
+class ChatRoom(models.Model):
+    """Chat room for church, commission, roles, or custom member selection"""
+    
+    ROOM_TYPES = (
+        ('CHURCH', 'Tous les membres'),
+        ('OWNER', 'Propriétaires'),
+        ('PASTOR', 'Pasteurs'),
+        ('COMMISSION', 'Commission'),
+        ('CUSTOM', 'Personnalisé'),
+    )
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    church = models.ForeignKey("Church", on_delete=models.CASCADE, related_name="chat_rooms")
+    room_type = models.CharField(max_length=20, choices=ROOM_TYPES, default='CHURCH')
+    name = models.CharField(max_length=100)
+    
+    # Optional: for COMMISSION type
+    commission = models.ForeignKey("Commission", on_delete=models.CASCADE, null=True, blank=True, related_name="chat_rooms")
+    
+    # Custom members (for CUSTOM type)
+    members = models.ManyToManyField("User", blank=True, related_name="custom_chat_rooms")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, related_name="created_chat_rooms")
+
+    class Meta:
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["church", "room_type"]),
+            models.Index(fields=["commission"]),
+        ]
+
+    def __str__(self):
+        return f"{self.church.title} - {self.get_room_type_display()} - {self.name}"
+    
+    def user_has_access(self, user):
+        """Check if a user has access to this room"""
+        from django.db.models import Q
+        
+        if not user.is_authenticated:
+            return False
+        
+        # Owners always have access to all rooms of their church
+        is_owner = User.objects.filter(
+            id=user.id,
+            church_roles__church=self.church,
+            church_roles__role='OWNER'
+        ).exists()
+        if is_owner:
+            return True
+        
+        # Check based on room type
+        if self.room_type == 'CHURCH':
+            return user.current_church_id == self.church_id
+        
+        elif self.room_type == 'OWNER':
+            return User.objects.filter(
+                id=user.id,
+                church_roles__church=self.church,
+                church_roles__role='OWNER'
+            ).exists()
+        
+        elif self.room_type == 'PASTOR':
+            return User.objects.filter(
+                id=user.id,
+                church_roles__church=self.church,
+                church_roles__role='PASTOR'
+            ).exists()
+        
+        elif self.room_type == 'COMMISSION':
+            if self.commission:
+                return User.objects.filter(
+                    id=user.id,
+                    church_commissions__commission=self.commission
+                ).exists()
+            return False
+        
+        elif self.room_type == 'CUSTOM':
+            return self.members.filter(id=user.id).exists()
+        
+        return False
+    
+    def get_members_queryset(self):
+        """Get all members who have access to this room based on type"""
+        from django.db.models import Q
+        
+        # Get owners
+        owners_qs = User.objects.filter(
+            church_roles__church=self.church,
+            church_roles__role='OWNER'
+        )
+        
+        if self.room_type == 'CHURCH':
+            # All church members + owners
+            return User.objects.filter(
+                Q(current_church=self.church) | 
+                Q(church_roles__church=self.church, church_roles__role='OWNER')
+            ).distinct()
+        
+        elif self.room_type == 'OWNER':
+            # All owners of the church
+            return owners_qs.distinct()
+        
+        elif self.room_type == 'PASTOR':
+            # All pastors + owners
+            return User.objects.filter(
+                Q(church_roles__church=self.church, church_roles__role='PASTOR') |
+                Q(church_roles__church=self.church, church_roles__role='OWNER')
+            ).distinct()
+        
+        elif self.room_type == 'COMMISSION':
+            # All commission members + owners
+            if self.commission:
+                return User.objects.filter(
+                    Q(church_commissions__commission=self.commission) |
+                    Q(church_roles__church=self.church, church_roles__role='OWNER')
+                ).distinct()
+            return owners_qs.distinct()
+        
+        elif self.room_type == 'CUSTOM':
+            # Custom members + owners
+            custom_members = self.members.values_list('id', flat=True)
+            return User.objects.filter(
+                Q(id__in=custom_members) |
+                Q(church_roles__church=self.church, church_roles__role='OWNER')
+            ).distinct()
+        
+        return owners_qs.distinct()
+
+class ChatMessage(models.Model):
+    """Chat messages in a room"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey("ChatRoom", on_delete=models.CASCADE, related_name="messages")
+    user = models.ForeignKey("User", on_delete=models.CASCADE, related_name="chat_messages")
+    message = models.TextField(blank=True)
+    
+    # AWS URLs
+    image_url = models.URLField(max_length=500, null=True, blank=True)
+    audio_url = models.URLField(max_length=500, null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["room", "-created_at"]),
+            models.Index(fields=["user"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user.name} - {self.room.name}"

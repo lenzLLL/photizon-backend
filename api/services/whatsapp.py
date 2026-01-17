@@ -3,9 +3,15 @@ import requests
 from django.utils import timezone
 from django.conf import settings
 import logging
+import os
 from api.models import OTP
 
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+WHATSAPP_PHONE_ID = os.getenv('WHATSAPP_PHONE_ID', '863349426864550')
+WHATSAPP_ACCESS_TOKEN = os.getenv('WHATSAPP_ACCESS_TOKEN')
+WHATSAPP_TEST_PHONE = os.getenv('WHATSAPP_TEST_PHONE', '237671434007')
 
 def generate_otp():
     return str(random.randint(100000, 999999))
@@ -24,18 +30,21 @@ def send_otp_whatsapp(phone):
     otp_entry.save()
 
     # Requête API Meta WhatsApp
-    url = f"https://graph.facebook.com/v22.0/863349426864550/messages"
+    url = f"https://graph.facebook.com/v22.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
-        "Authorization": f"Bearer EAAMNQbohC3wBQRxTPWYSdZBxzIWXsQtguTQypR51GR2sP2daeLqri3DroFQU5DeGcXLn0MtG77e4alZBhv7rRgiciBZAgjB8Jm2m3knTmgSNBRELbQWrTiUZBFuO7gGDwXNgmerzIRUid6FVPKE78s2HJK8WscZAcSnEwQPzVuoG70qHTH1bn6ZBXZAJX160HLt4SWuCerIXhrYZBOl25JVULFFNBC5ln0tiYoO7wHhR66mbCp7wXR4mF9L8RpZAlYcPI6Qq1CQXWLQnOeKu96mfS4FRQ",        "Content-Type": "application/json"
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
     }
 
-    payload = {    "messaging_product": "whatsapp",
-    "to": "237671434007",
-    "type": "template",
-    "template": {
-      "name": "hello_world",
-      "language": { "code": "en_US" }
-    }}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": WHATSAPP_TEST_PHONE,
+        "type": "template",
+        "template": {
+            "name": "hello_world",
+            "language": {"code": "en_US"}
+        }
+    }
 
     res = requests.post(url, json=payload, headers=headers)
     print(otp_value)
@@ -70,20 +79,21 @@ def send_whatsapp_template(to_phone: str, template_name: str, parameters: list, 
     Returns dict (response json) or raises request exception.
     """
 
-
-    url = f"https://graph.facebook.com/v22.0/863349426864550/messages"
+    url = f"https://graph.facebook.com/v22.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
-        "Authorization": f"Bearer EAAMNQbohC3wBQRxTPWYSdZBxzIWXsQtguTQypR51GR2sP2daeLqri3DroFQU5DeGcXLn0MtG77e4alZBhv7rRgiciBZAgjB8Jm2m3knTmgSNBRELbQWrTiUZBFuO7gGDwXNgmerzIRUid6FVPKE78s2HJK8WscZAcSnEwQPzVuoG70qHTH1bn6ZBXZAJX160HLt4SWuCerIXhrYZBOl25JVULFFNBC5ln0tiYoO7wHhR66mbCp7wXR4mF9L8RpZAlYcPI6Qq1CQXWLQnOeKu96mfS4FRQ",
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    payload = {    "messaging_product": "whatsapp",
-    "to": "237671434007",
-    "type": "template",
-    "template": {
-      "name": "hello_world",
-      "language": { "code": "en_US" }
-    }}
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_phone,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language.split("_")[0] + "_" + language.split("_")[-1]},
+        }
+    }
 
     # Build components for template body parameters
     components = []
@@ -92,18 +102,12 @@ def send_whatsapp_template(to_phone: str, template_name: str, parameters: list, 
             "type": "body",
             "parameters": [{"type": "text", "text": str(p)} for p in parameters]
         }]
-    payload = {    "messaging_product": "whatsapp",
-    "to": "237671434007",
-    "type": "template",
-    "template": {
-      "name": "hello_world",
-      "language": { "code": "en_US" }
-    }}
-    # payload = {
-    #     "messaging_product": "whatsapp",
-    #     "to": to_phone,
-    #     "type": "template",
-    #     "template": {
+    
+    payload["template"]["components"] = components
+
+    resp = requests.post(url, json=payload, headers=headers, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
     #         "name": template_name,
     #         "language": {"code": language.split("_")[0] + "_" + language.split("_")[-1]},
     #         "components": components

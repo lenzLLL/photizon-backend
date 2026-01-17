@@ -5,6 +5,10 @@ from api.views.contents.contents_view import list_ticket_types, create_ticket_ty
 from .views.auth.auth_views import change_subscription_plan, check_subscription_status, delete_subscription, get_church_subscription, list_subscriptions, renew_subscription, send_otp_view, toggle_subscription_status, update_subscription, verify_otp_view
 from .views.crud.crud_views import churches_metrics,create_subchurch_view, deny_user,filter_church_members,get_current_user, join_church, leave_church, leave_commission, unban_user,update_church_by_owner,list_owners,list_users,delete_church,update_church,delete_self,update_self,delete_self,list_churches,create_church_view,list_my_churches,verify_church_view,add_church_admin,list_sub_churches
 from .views.crud.receipt_views import ReceiptViewSet, create_receipt, get_receipt, update_receipt, delete_receipt, list_all_receipts
+from .views.chat.chat_views import (
+    list_create_chat_rooms, room_detail, list_create_messages, message_detail,
+    add_member_to_custom_room, remove_member_from_custom_room
+)
 from .views.gifts.gifts_view import (
     admin_book_order_stats, book_order_detail,church_financial_overview, church_order_stats, create_book_order, list_categories_d, create_category_d, retrieve_category_d, update_book_order, update_category_d, delete_category_d,
     make_donation, list_user_donations, list_church_donations,
@@ -143,6 +147,15 @@ urlpatterns = [
     path("receipts/<str:receipt_id>/", get_receipt, name="get-receipt"),
     path("receipts/<str:receipt_id>/update/", update_receipt, name="update-receipt"),
     path("receipts/<str:receipt_id>/delete/", delete_receipt, name="delete-receipt"),
+    # Chat endpoints
+    path("chat/church/<int:church_id>/rooms/", list_create_chat_rooms, name="list-create-chat-rooms"),
+    path("chat/church/<int:church_id>/rooms/create/", list_create_chat_rooms, name="create-chat-room"),
+    path("chat/room/<int:room_id>/", room_detail, name="room-detail"),
+    path("chat/room/<int:room_id>/messages/", list_create_messages, name="list-create-messages"),
+    path("chat/room/<int:room_id>/messages/create/", list_create_messages, name="create-message"),
+    path("chat/room/<int:room_id>/messages/<int:message_id>/", message_detail, name="message-detail"),
+    path("chat/room/<int:room_id>/members/add/", add_member_to_custom_room, name="add-member-to-room"),
+    path("chat/room/<int:room_id>/members/remove/", remove_member_from_custom_room, name="remove-member-from-room"),
 ]
 
 urlpatterns += router.urls

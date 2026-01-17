@@ -14,7 +14,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 from datetime import timedelta
+import dj_database_url
+
+# Load environment variables from .env file
 load_dotenv()
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -23,12 +27,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@w(t06#*)%wf%rqc%$@arsteq%oyogiq2j+zf!c88^-pp9z_%x'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-@w(t06#*)%wf%rqc%$@arsteq%oyogiq2j+zf!c88^-pp9z_%x')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = []
+# Parse ALLOWED_HOSTS from environment
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+
+# Frontend and API URLs from environment
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+API_URL = os.getenv('API_URL', 'http://localhost:8000')
+WS_URL = os.getenv('WS_URL', 'ws://localhost:8000')
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -38,6 +48,7 @@ REST_FRAMEWORK = {
 # Application definition
 
 INSTALLED_APPS = [
+    # 'daphne',  # Optional: for production ASGI server
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -45,6 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'channels',
     "api"
 ]
 
@@ -76,16 +88,21 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'photizon.wsgi.application'
+ASGI_APPLICATION = 'photizon.asgi.application'
+
+# Channels configuration
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer'
+    }
+}
 
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.parse(os.getenv('DATABASE_URL', 'sqlite:///db.sqlite3'), conn_max_age=600)
 }
 
 

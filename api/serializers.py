@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation, Receipt
+from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation, Receipt, ChatMessage, ChatRoom
 from django.utils.text import slugify
 
 class UserSerializer(serializers.ModelSerializer):
@@ -499,3 +499,75 @@ class ReceiptSerializer(serializers.ModelSerializer):
             "amount", "description", "issued_at", "created_at"
         ]
         read_only_fields = ["id", "issued_at", "created_at", "church"]
+
+
+# =====================================================
+# Chat Serializers
+# =====================================================
+class ChatMessageSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source="user.name", read_only=True)
+    user_id = serializers.CharField(source="user.id", read_only=True)
+
+    class Meta:
+        model = ChatMessage
+        fields = ["id", "user", "user_name", "user_id", "message", "image_url", "audio_url", "created_at"]
+        read_only_fields = ["id", "created_at", "user"]
+
+
+class ChatRoomSerializer(serializers.ModelSerializer):
+    church_title = serializers.CharField(source="church.title", read_only=True)
+    room_type_display = serializers.CharField(source="get_room_type_display", read_only=True)
+    messages = ChatMessageSerializer(many=True, read_only=True)
+    created_by_name = serializers.CharField(source="created_by.name", read_only=True)
+    commission_name = serializers.CharField(source="commission.name", read_only=True, allow_null=True)
+    members_count = serializers.SerializerMethodField()
+    members_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatRoom
+        fields = [
+            "id", "church", "church_title", "room_type", "room_type_display", 
+            "name", "commission", "commission_name", "members_count", "members_list",
+            "created_at", "updated_at", "created_by", "created_by_name", "messages"
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+    
+    def get_members_count(self, obj):
+        """Get count of members in this room"""
+        return obj.get_members_queryset().count()
+    
+    def get_members_list(self, obj):
+        """Get detailed list of all members in this room"""
+        members = obj.get_members_queryset()
+        return [
+            {
+                "id": member.id,
+                "name": member.name,
+                "phone_number": member.phone_number,
+                "email": member.email,
+                "picture_url": member.picture_url,
+            }
+            for member in members
+        ]
+
+
+class ChatRoomCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating chat rooms"""
+    
+    class Meta:
+        model = ChatRoom
+        fields = [
+            "church", "room_type", "name", "commission", "members"
+        ]
+    
+    def validate(self, data):
+        """Validate room_type specific requirements"""
+        room_type = data.get('room_type')
+        
+        if room_type == 'COMMISSION' and not data.get('commission'):
+            raise serializers.ValidationError("Commission is required for COMMISSION type rooms")
+        
+        if room_type == 'CUSTOM' and not data.get('members'):
+            raise serializers.ValidationError("Members are required for CUSTOM type rooms")
+        
+        return data
