@@ -5,7 +5,7 @@ from rest_framework import status
 from django.db.models import Q,F, Count
 from django.utils.text import slugify
 from api.permissions import IsAuthenticatedUser, IsSuperAdmin, user_is_church_admin
-from api.serializers import CategorySerializer, CommentSerializer, ContentCreateUpdateSerializer, ContentDetailSerializer, ContentListSerializer, PlaylistItemSerializer, PlaylistSerializer, TagSerializer
+from api.serializers import CategorySerializer, CommentSerializer, ContentCreateUpdateSerializer, ContentDetailSerializer, ContentListSerializer, PlaylistItemSerializer, PlaylistSerializer, TagSerializer, ContentNotificationSerializer, ContentComingSoonSerializer
 # imports communs pour serializers + views
 from django.db.models import Count, Q
 from django.db.models.functions import TruncMonth
@@ -20,7 +20,7 @@ import random
 # tes modèles (adaptés à ton projet)
 from api.models import (
     ChurchAdmin, Content, Category, Tag, ContentTag, Playlist, PlaylistItem,
-    ContentView, ContentLike, Comment, Church, User
+    ContentView, ContentLike, Comment, Church, User, ContentNotification
 )
 from api.models import TicketType
 from api.serializers import TicketTypeSerializer
@@ -30,6 +30,18 @@ from api.permissions import IsAuthenticatedUser
 from django.utils import timezone
 from datetime import timedelta
 from itertools import zip_longest
+
+
+def exclude_coming_soon(queryset):
+    """
+    Exclure les contenus 'Coming Soon' d'une queryset
+    Un contenu est 'coming soon' s'il est publié et sa date prévue > maintenant
+    """
+    return queryset.exclude(
+        published=True,
+        planned_release_date__isnull=False,
+        planned_release_date__gt=timezone.now()
+    )
 
 
 @api_view(["POST"])
@@ -131,6 +143,9 @@ def list_content(request):
     if search:
         qs = qs.filter(Q(title__icontains=search) | Q(description__icontains=search))
 
+    # Exclure les contenus coming soon
+    qs = exclude_coming_soon(qs)
+
     # annotate likes & views for ordering if requested
     qs = qs.annotate(likes_count=Count("contentlike"), views_count=Count("contentview"))
 
@@ -150,6 +165,17 @@ def list_content(request):
 @permission_classes([IsAuthenticatedUser])
 def retrieve_content(request, content_id):
     obj = get_object_or_404(Content, id=content_id)
+    
+    # Vérifier si c'est un contenu coming soon
+    if obj.is_coming_soon():
+        # Seuls les admins de l'église peuvent voir les coming soon
+        from api.permissions import user_is_church_admin
+        if not user_is_church_admin(request.user, obj.church) and request.user.role != "SADMIN":
+            return Response(
+                {"error": "Ce contenu n'est pas encore disponible"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
     serializer = ContentDetailSerializer(obj)
     return Response(serializer.data)
 
@@ -393,9 +419,13 @@ def reorder_playlist_item(request, item_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def trending_content(request, church_id):
+    qs = Content.objects.filter(church_id=church_id)
+    
+    # Exclure les coming soon AVANT de scorer/trier
+    qs = exclude_coming_soon(qs)
+    
     qs = (
-        Content.objects.filter(church_id=church_id)
-        .annotate(
+        qs.annotate(
             likes_count=Count("contentlike", distinct=True),
             views_count=Count("contentview", distinct=True),
         )
@@ -421,9 +451,10 @@ def recommend_for_user(request,church_id):
 
     # Si pas de vues récentes, fallback sur trending/latest
     if not last_content_ids:
+        qs = Content.objects.filter(church_id=church_id, published=True, is_public=True)
+        qs = exclude_coming_soon(qs)
         qs = (
-            Content.objects.filter(church_id=church_id, published=True, is_public=True)
-            .annotate(views_count=Count("contentview"), likes_count=Count("contentlike"))
+            qs.annotate(views_count=Count("contentview"), likes_count=Count("contentlike"))
             .order_by("-views_count", "-likes_count")[:20]
         )
         serializer = ContentListSerializer(qs, many=True)
@@ -440,10 +471,18 @@ def recommend_for_user(request,church_id):
 
     # Construire une requête candidate: contenus de la même église, publiés et publics,
     # avec au moins un tag en commun, et que l'utilisateur n'a pas déjà vus
+    candidates = Content.objects.filter(
+        church_id=church_id,
+        published=True,
+        is_public=True,
+        contenttag__tag_id__in=tag_ids
+    ).exclude(id__in=last_content_ids)
+    
+    # Exclure les coming soon AVANT d'annoter
+    candidates = exclude_coming_soon(candidates)
+    
     candidates = (
-        Content.objects.filter(church_id=church_id, published=True, is_public=True, contenttag__tag_id__in=tag_ids)
-        .exclude(id__in=last_content_ids)
-        .annotate(
+        candidates.annotate(
             tag_matches=Count("contenttag", filter=Q(contenttag__tag_id__in=tag_ids)),
             views_count=Count("contentview", distinct=True),
             likes_count=Count("contentlike", distinct=True),
@@ -458,10 +497,11 @@ def recommend_for_user(request,church_id):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticatedUser])
 def feed_for_church(request, church_id):
-    # Respecter uniquement les contenus publiés et publics
+    # Feed PUBLIC - Pas besoin d'authentification
+    # Respecter uniquement les contenus publiés et publics (et pas coming soon)
     base_qs = Content.objects.filter(church_id=church_id, published=True, is_public=True)
+    base_qs = exclude_coming_soon(base_qs)
 
     # Derniers contenus (récent)
     latest = list(base_qs.order_by("-created_at")[:30])
@@ -494,10 +534,11 @@ def feed_for_church(request, church_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticatedUser])
 def content_stats_global(request):
-    total = Content.objects.count()
-    by_type = Content.objects.values("type").annotate(total=Count("id")).order_by("-total")
-    by_month = Content.objects.annotate(month=TruncMonth("created_at")).values("month").annotate(count=Count("id")).order_by("month")
-    top_liked = Content.objects.annotate(likes=Count("contentlike")).order_by("-likes")[:10].values("id","title","likes")
+    qs = exclude_coming_soon(Content.objects.all())
+    total = qs.count()
+    by_type = qs.values("type").annotate(total=Count("id")).order_by("-total")
+    by_month = qs.annotate(month=TruncMonth("created_at")).values("month").annotate(count=Count("id")).order_by("month")
+    top_liked = qs.annotate(likes=Count("contentlike")).order_by("-likes")[:10].values("id","title","likes")
     return Response({
         "total": total,
         "by_type": list(by_type),
@@ -512,10 +553,12 @@ def content_stats_for_church(request, church_id):
     church = get_object_or_404(Church, id=church_id)
     if not getattr(church, "is_verified", False):
         return Response({"detail": "Church not verified"}, status=403)
-    total = Content.objects.filter(church=church).count()
-    by_type = Content.objects.filter(church=church).values("type").annotate(total=Count("id")).order_by("-total")
-    top_liked = Content.objects.filter(church=church).annotate(likes=Count("contentlike")).order_by("-likes")[:10].values("id","title","likes")
-    views = ContentView.objects.filter(content__church=church).count()
+    
+    qs = exclude_coming_soon(Content.objects.filter(church=church))
+    total = qs.count()
+    by_type = qs.values("type").annotate(total=Count("id")).order_by("-total")
+    top_liked = qs.annotate(likes=Count("contentlike")).order_by("-likes")[:10].values("id","title","likes")
+    views = ContentView.objects.filter(content__church=church, content__in=qs).count()
     return Response({
         "total": total,
         "by_type": list(by_type),
@@ -602,3 +645,363 @@ def delete_ticket_type(request, ticket_type_id):
             return Response({"detail": "Forbidden"}, status=403)
     tt.delete()
     return Response({"detail": "deleted"}, status=204)
+
+
+# =====================================================
+# Church Feed (Fil d'actualité)
+# =====================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
+def church_feed(request, church_id):
+    """
+    Fil d'actualité de l'église (style Facebook - pagination infinie)
+    Contient :
+    - Tous les contenus publiés de l'église (peu importe is_public)
+    - Tous les contenus publiés des sous-églises (peu importe is_public)
+    - Tous les contenus publiés des églises parentes (peu importe is_public)
+    - Seulement les contenus publics ET publiés des églises collaboratrices
+    
+    Query params:
+    - limit: nombre de contenus par requête (défaut 20)
+    - offset: position de départ (défaut 0)
+    
+    Utilisation : GET /api/church/<id>/feed/?limit=20&offset=0
+    """
+    try:
+        church = Church.objects.get(id=church_id)
+    except Church.DoesNotExist:
+        return Response(
+            {"error": "Église non trouvée"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que l'utilisateur est membre de l'église
+    if request.user.current_church_id != church.id and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous devez être membre de cette église pour accéder au fil d'actualité"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    from api.models import ChurchCollaboration
+    from django.db.models import Q
+    
+    # Récupérer les IDs des églises : courante, sous-églises, et parents
+    church_ids_internal = [church.id]
+    
+    # Ajouter les sous-églises
+    sub_churches = church.sub_churches.all().values_list('id', flat=True)
+    church_ids_internal.extend(sub_churches)
+    
+    # Ajouter les églises parentes (remonter l'arborescence)
+    parent = church.parent
+    while parent:
+        church_ids_internal.append(parent.id)
+        parent = parent.parent
+    
+    # Récupérer les IDs des églises collaboratrices
+    collaborations = ChurchCollaboration.objects.filter(
+        Q(initiator_church=church, status="ACCEPTED") |
+        Q(target_church=church, status="ACCEPTED")
+    )
+    
+    church_ids_collaborators = []
+    for collab in collaborations:
+        if collab.initiator_church.id == church.id:
+            church_ids_collaborators.append(collab.target_church.id)
+        else:
+            church_ids_collaborators.append(collab.initiator_church.id)
+    
+    # Requête pour les iglises internes (pas besoin d'is_public)
+    internal_contents = Content.objects.filter(
+        church_id__in=church_ids_internal,
+        published=True
+    )
+    
+    # Requête pour les églises collaboratrices (besoin d'is_public)
+    collaborator_contents = Content.objects.filter(
+        church_id__in=church_ids_collaborators,
+        is_public=True,
+        published=True
+    )
+    
+    # Combiner les deux requêtes
+    from django.db.models import Q as DjangoQ
+    all_contents = Content.objects.filter(
+        DjangoQ(
+            church_id__in=church_ids_internal,
+            published=True
+        ) |
+        DjangoQ(
+            church_id__in=church_ids_collaborators,
+            is_public=True,
+            published=True
+        )
+    ).select_related(
+        'church', 'category', 'created_by'
+    ).prefetch_related(
+        'tags'
+    ).order_by('-created_at').distinct()
+    
+    # Exclure les contenus coming soon
+    all_contents = exclude_coming_soon(all_contents)
+    
+    # Pagination infinie (offset/limit)
+    try:
+        limit = int(request.query_params.get('limit', 20))
+        offset = int(request.query_params.get('offset', 0))
+    except ValueError:
+        limit = 20
+        offset = 0
+    
+    # Limiter le limit à 100 pour éviter les abus
+    limit = min(limit, 100)
+    
+    total_count = all_contents.count()
+    paginated_contents = all_contents[offset:offset + limit]
+    
+    serializer = ContentListSerializer(paginated_contents, many=True)
+    
+    return Response({
+        "count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < total_count else None,
+        "results": serializer.data
+    }, status=status.HTTP_200_OK)
+
+
+# =====================================================
+# Content Coming Soon Endpoints
+# =====================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
+def list_coming_soon(request, church_id):
+    """
+    Lister tous les contenus 'Coming Soon' d'une église
+    Query params: limit, offset, type
+    """
+    try:
+        church = Church.objects.get(id=church_id)
+    except Church.DoesNotExist:
+        return Response(
+            {"error": "Église non trouvée"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que l'utilisateur est membre
+    if request.user.current_church_id != church.id and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous devez être membre de cette église"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Récupérer les contenus coming soon
+    coming_soon = Content.objects.filter(
+        church=church,
+        published=True,
+        planned_release_date__isnull=False,
+        planned_release_date__gt=timezone.now()
+    ).select_related('church', 'category', 'created_by').order_by('planned_release_date')
+    
+    # Filtrer par type
+    content_type = request.query_params.get('type')
+    if content_type:
+        coming_soon = coming_soon.filter(type=content_type)
+    
+    # Pagination
+    try:
+        limit = int(request.query_params.get('limit', 20))
+        offset = int(request.query_params.get('offset', 0))
+    except ValueError:
+        limit = 20
+        offset = 0
+    
+    limit = min(limit, 100)
+    total_count = coming_soon.count()
+    paginated_contents = coming_soon[offset:offset + limit]
+    
+    serializer = ContentComingSoonSerializer(
+        paginated_contents,
+        many=True,
+        context={'request': request}
+    )
+    
+    return Response({
+        "count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < total_count else None,
+        "results": serializer.data
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticatedUser])
+def subscribe_to_content(request, content_id):
+    """
+    S'abonner aux notifications pour un contenu Coming Soon
+    """
+    try:
+        content = Content.objects.get(id=content_id)
+    except Content.DoesNotExist:
+        return Response(
+            {"error": "Contenu non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que c'est du coming soon
+    if not content.is_coming_soon():
+        return Response(
+            {"error": "Ce contenu n'est pas Coming Soon"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Vérifier que l'utilisateur n'est pas déjà abonné
+    notification, created = ContentNotification.objects.get_or_create(
+        content=content,
+        user=request.user
+    )
+    
+    if not created:
+        return Response(
+            {"message": "Vous êtes déjà abonné à ce contenu"},
+            status=status.HTTP_200_OK
+        )
+    
+    serializer = ContentNotificationSerializer(notification)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticatedUser])
+def unsubscribe_from_content(request, content_id):
+    """
+    Se désabonner des notifications d'un contenu
+    """
+    try:
+        content = Content.objects.get(id=content_id)
+    except Content.DoesNotExist:
+        return Response(
+            {"error": "Contenu non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        notification = ContentNotification.objects.get(
+            content=content,
+            user=request.user
+        )
+    except ContentNotification.DoesNotExist:
+        return Response(
+            {"error": "Vous n'êtes pas abonné à ce contenu"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    notification.delete()
+    
+    return Response(
+        {"message": "Vous avez été désabonné"},
+        status=status.HTTP_200_OK
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
+def get_my_subscriptions(request):
+    """
+    Récupérer les contenus auxquels l'utilisateur est abonné
+    Query params: limit, offset
+    """
+    subscriptions = ContentNotification.objects.filter(
+        user=request.user,
+        is_notified=False
+    ).select_related('content').order_by('-subscribed_at')
+    
+    # Pagination
+    try:
+        limit = int(request.query_params.get('limit', 20))
+        offset = int(request.query_params.get('offset', 0))
+    except ValueError:
+        limit = 20
+        offset = 0
+    
+    limit = min(limit, 100)
+    total_count = subscriptions.count()
+    paginated_subs = subscriptions[offset:offset + limit]
+    
+    serializer = ContentNotificationSerializer(paginated_subs, many=True)
+    
+    return Response({
+        "count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < total_count else None,
+        "results": serializer.data
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
+def get_content_subscribers(request, content_id):
+    """
+    Récupérer les abonnés d'un contenu (ADMIN ONLY)
+    Seuls les admins de l'église peuvent voir qui est abonné à leurs contenus
+    
+    Query params: limit, offset
+    """
+    try:
+        content = Content.objects.get(id=content_id)
+    except Content.DoesNotExist:
+        return Response(
+            {"error": "Contenu non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que l'utilisateur est admin de l'église ou SADMIN
+    from api.permissions import user_is_church_admin
+    if not user_is_church_admin(request.user, content.church) and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous n'avez pas la permission de voir les abonnés de ce contenu"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Récupérer les abonnés
+    subscribers = ContentNotification.objects.filter(
+        content=content
+    ).select_related('user').order_by('-subscribed_at')
+    
+    # Pagination
+    try:
+        limit = int(request.query_params.get('limit', 20))
+        offset = int(request.query_params.get('offset', 0))
+    except ValueError:
+        limit = 20
+        offset = 0
+    
+    limit = min(limit, 100)
+    total_count = subscribers.count()
+    paginated_subscribers = subscribers[offset:offset + limit]
+    
+    # Créer un serializer custom pour les abonnés avec infos utilisateur
+    data = []
+    for notification in paginated_subscribers:
+        data.append({
+            "user_id": notification.user.id,
+            "user_name": notification.user.name,
+            "user_email": notification.user.email,
+            "subscribed_at": notification.subscribed_at,
+            "is_notified": notification.is_notified,
+            "notified_at": notification.notified_at
+        })
+    
+    return Response({
+        "content_id": content_id,
+        "content_title": content.title,
+        "total_subscribers": total_count,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < total_count else None,
+        "subscribers": data
+    })

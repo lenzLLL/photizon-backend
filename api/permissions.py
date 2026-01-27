@@ -62,3 +62,44 @@ def user_is_church_owner(user, church):
         church=church,
         role__in=["OWNER"]
     ).exists()
+
+class IsChurchOwnerOrAdmin(BasePermission):
+    """Permission to check if user is church owner or admin"""
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        # SuperAdmin has all access
+        if getattr(request.user, "role", None) == "SADMIN":
+            return True
+        return True
+    
+    def has_object_permission(self, request, view, obj):
+        # SuperAdmin has all access
+        if getattr(request.user, "role", None) == "SADMIN":
+            return True
+        # Check if user is admin/owner of the church
+        church = obj.church if hasattr(obj, 'church') else obj
+        return ChurchAdmin.objects.filter(
+            user=request.user,
+            church=church,
+            role__in=["OWNER", "ADMIN"]
+        ).exists()
+
+class IsTestimonyOwner(BasePermission):
+    """Permission to check if user is the testimony owner or church admin"""
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated
+    
+    def has_object_permission(self, request, view, obj):
+        # SuperAdmin has all access
+        if getattr(request.user, "role", None) == "SADMIN":
+            return True
+        # Testimony owner can edit
+        if obj.created_by == request.user:
+            return True
+        # Church admin/owner can edit
+        return ChurchAdmin.objects.filter(
+            user=request.user,
+            church=obj.church,
+            role__in=["OWNER", "ADMIN"]
+        ).exists()

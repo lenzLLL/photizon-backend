@@ -278,6 +278,14 @@ class Content(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     published = models.BooleanField(default=True)
+    
+    # Coming Soon Management
+    planned_release_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Date prévue de publication (Coming Soon)"
+    )
 
     # Ticket tiers stored directly on Content (prix et quantités par type)
     # Exemple: classic, vip, premium
@@ -320,6 +328,21 @@ class Content(models.Model):
         if self.capacity is None:
             return None
         return max(0, self.capacity - (self.tickets_sold or 0))
+    
+    def is_coming_soon(self):
+        """Vérifier si le contenu est 'Coming Soon'"""
+        if self.planned_release_date and self.published:
+            return timezone.now() < self.planned_release_date
+        return False
+    
+    def get_status(self):
+        """Retourner le statut du contenu"""
+        if not self.published:
+            return "DRAFT"
+        elif self.is_coming_soon():
+            return "COMING_SOON"
+        else:
+            return "PUBLISHED"
 
     def __str__(self):
         return f"{self.type} - {self.title}"
@@ -894,13 +917,14 @@ class Receipt(models.Model):
 # Chat Model
 # =====================================================
 class ChatRoom(models.Model):
-    """Chat room for church, commission, roles, or custom member selection"""
+    """Chat room for church, commission, roles, custom member selection, or programme"""
     
     ROOM_TYPES = (
         ('CHURCH', 'Tous les membres'),
         ('OWNER', 'Propriétaires'),
         ('PASTOR', 'Pasteurs'),
         ('COMMISSION', 'Commission'),
+        ('PROGRAMME', 'Programme'),
         ('CUSTOM', 'Personnalisé'),
     )
     
@@ -911,6 +935,9 @@ class ChatRoom(models.Model):
     
     # Optional: for COMMISSION type
     commission = models.ForeignKey("Commission", on_delete=models.CASCADE, null=True, blank=True, related_name="chat_rooms")
+    
+    # Optional: for PROGRAMME type
+    programme = models.ForeignKey("Programme", on_delete=models.CASCADE, null=True, blank=True, related_name="chat_rooms")
     
     # Custom members (for CUSTOM type)
     members = models.ManyToManyField("User", blank=True, related_name="custom_chat_rooms")
@@ -1045,3 +1072,598 @@ class ChatMessage(models.Model):
 
     def __str__(self):
         return f"{self.user.name} - {self.room.name}"
+
+
+# =====================================================
+# Testimony Model - Témoignages textuels ou audio
+# =====================================================
+
+class Testimony(models.Model):
+    """Testimonies (testimonials) in a church - text or audio"""
+    
+    TYPE_CHOICES = [
+        ("TEXT", "Texte"),
+        ("AUDIO", "Audio"),
+    ]
+    
+    STATUS_CHOICES = [
+        ("PENDING", "En attente d'approbation"),
+        ("APPROVED", "Approuvé"),
+        ("REJECTED", "Rejeté"),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    church = models.ForeignKey(
+        "Church",
+        on_delete=models.CASCADE,
+        related_name="testimonies"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="testimonies"
+    )
+    
+    # Content
+    type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        db_index=True
+    )
+    title = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True
+    )
+    text_content = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Le contenu texte du témoignage"
+    )
+    audio_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="URL de l'audio du témoignage"
+    )
+    duration = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Durée en secondes pour les audios"
+    )
+    
+    # Metadata
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING",
+        db_index=True
+    )
+    is_public = models.BooleanField(
+        default=True,
+        help_text="Visible publiquement dans l'église"
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    
+    # Moderation
+    approved_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_testimonies"
+    )
+    rejection_reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Raison du rejet si applicable"
+    )
+    
+    # Stats
+    views_count = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["church", "-created_at"]),
+            models.Index(fields=["user"]),
+            models.Index(fields=["church", "status"]),
+            models.Index(fields=["church", "is_public", "-created_at"]),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.name} - {self.church.title} ({self.type})"
+    
+    def approve(self, approved_by_user):
+        """Approuve le témoignage"""
+        self.status = "APPROVED"
+        self.approved_by = approved_by_user
+        self.approved_at = timezone.now()
+        self.save()
+    
+    def reject(self, reason):
+        """Rejette le témoignage"""
+        self.status = "REJECTED"
+        self.rejection_reason = reason
+        self.save()
+
+# =====================================================
+# Church Collaboration Model
+# =====================================================
+
+class ChurchCollaboration(models.Model):
+    """Collaborations between churches"""
+    
+    STATUS_CHOICES = [
+        ("PENDING", "En attente"),
+        ("ACCEPTED", "Acceptée"),
+        ("REJECTED", "Rejetée"),
+    ]
+    
+    TYPE_CHOICES = [
+        ("PARTNERSHIP", "Partenariat"),
+        ("RESOURCE_SHARING", "Partage de ressources"),
+        ("FATHER", "Ministère parternel"),
+        ("OTHER", "Autre"),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    initiator_church = models.ForeignKey(
+        "Church",
+        on_delete=models.CASCADE,
+        related_name="initiated_collaborations",
+        help_text="L'église qui initie la collaboration"
+    )
+    target_church = models.ForeignKey(
+        "Church",
+        on_delete=models.CASCADE,
+        related_name="received_collaborations",
+        help_text="L'église avec laquelle collaborer"
+    )
+    created_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_collaborations"
+    )
+    
+    # Details
+  
+    collaboration_type = models.CharField(
+        max_length=50,
+        choices=TYPE_CHOICES,
+        default="PARTNERSHIP",
+        db_index=True
+    )
+    
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING",
+        db_index=True
+    )
+    
+    # Dates
+    start_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date de début de la collaboration"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    
+    # Moderation
+
+    accepted_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="accepted_collaborations"
+    )
+    
+    # Additional info
+
+
+    class Meta:
+        unique_together = [
+            ['initiator_church', 'target_church'],
+        ]
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['initiator_church', 'status']),
+            models.Index(fields=['target_church', 'status']),
+            models.Index(fields=['collaboration_type']),
+            models.Index(fields=['-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.initiator_church.title} + {self.target_church.title} ({self.get_status_display()})"
+    
+    def accept(self, accepted_by_user):
+        """Accepte la collaboration"""
+        self.status = "ACCEPTED"
+        self.accepted_by = accepted_by_user
+        self.accepted_at = timezone.now()
+        self.save()
+    
+    def reject(self):
+        """Rejette la collaboration"""
+        self.status = "REJECTED"
+        self.rejected_at = timezone.now()
+        self.save()
+
+# =====================================================
+# Testimony Like Model
+# =====================================================
+
+class TestimonyLike(models.Model):
+    """Likes on testimonies"""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    testimony = models.ForeignKey(
+        "Testimony",
+        on_delete=models.CASCADE,
+        related_name="likes"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="liked_testimonies"
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = [['testimony', 'user']]
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['testimony']),
+            models.Index(fields=['user']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.name} likes {self.testimony.id}"
+
+
+# =====================================================
+# Programme Model
+# =====================================================
+
+class Programme(models.Model):
+    """Programmes organisés par une église contenant plusieurs événements/enseignements"""
+    
+    STATUS_CHOICES = [
+        ("DRAFT", "Brouillon"),
+        ("PUBLISHED", "Publié"),
+        ("ARCHIVED", "Archivé"),
+        ("CANCELLED", "Annulé"),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    church = models.ForeignKey(
+        "Church",
+        on_delete=models.CASCADE,
+        related_name="programmes",
+        help_text="L'église qui organise le programme"
+    )
+    created_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_programmes"
+    )
+    
+    # Details
+    title = models.CharField(
+        max_length=250,
+        db_index=True,
+        help_text="Titre du programme"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Description détaillée du programme"
+    )
+    cover_image_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Image de couverture du programme"
+    )
+    
+    # Dates
+    start_date = models.DateField(
+        db_index=True,
+        help_text="Date de début du programme"
+    )
+    end_date = models.DateField(
+        help_text="Date de fin du programme"
+    )
+    
+    # Status & visibility
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="DRAFT",
+        db_index=True
+    )
+    is_public = models.BooleanField(
+        default=False,
+        help_text="Visible pour les églises collaboratrices"
+    )
+    
+    # Introductory content (shown before programme starts)
+    intro_video_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Vidéo introductive accessible avant le démarrage"
+    )
+    intro_document_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Document introductif (PDF, etc.) accessible avant le démarrage"
+    )
+    
+    # Content references
+    content_items = models.ManyToManyField(
+        "Content",
+        related_name="programmes",
+        blank=True,
+        help_text="Les événements, enseignements, etc. du programme"
+    )
+    
+    # Metadata
+    duration_in_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Durée en jours (calculé automatiquement)"
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-start_date']
+        indexes = [
+            models.Index(fields=['church', 'status']),
+            models.Index(fields=['church', 'start_date']),
+            models.Index(fields=['status', 'is_public']),
+            models.Index(fields=['-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.title} - {self.church.title}"
+    
+    def save(self, *args, **kwargs):
+        """Calcul automatique de la durée"""
+        if self.start_date and self.end_date:
+            self.duration_in_days = (self.end_date - self.start_date).days + 1
+        super().save(*args, **kwargs)
+    
+    def get_event_count(self):
+        """Nombre d'événements/contenus du programme"""
+        return self.content_items.count()
+    
+    def is_active(self):
+        """Vérifier si le programme est actuellement actif"""
+        today = timezone.now().date()
+        return self.start_date <= today <= self.end_date
+    
+    def get_member_count(self):
+        """Nombre de membres dans le programme"""
+        return self.members.count()
+    
+    def is_coming_soon(self):
+        """Vérifier si le programme n'a pas encore commencé"""
+        today = timezone.now().date()
+        return self.status == "PUBLISHED" and today < self.start_date
+    
+    def get_status(self):
+        """Retourner le statut du programme (COMING_SOON, ACTIVE, FINISHED)"""
+        today = timezone.now().date()
+        if today < self.start_date:
+            return "COMING_SOON"
+        elif self.start_date <= today <= self.end_date:
+            return "ACTIVE"
+        else:
+            return "FINISHED"
+
+
+# =====================================================
+# Programme Member Model
+# =====================================================
+
+class ProgrammeMember(models.Model):
+    """Membres d'un programme"""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    programme = models.ForeignKey(
+        "Programme",
+        on_delete=models.CASCADE,
+        related_name="members"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="programmes"
+    )
+    
+    # Timestamps
+    joined_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    class Meta:
+        unique_together = [['programme', 'user']]
+        ordering = ['-joined_at']
+        indexes = [
+            models.Index(fields=['programme', 'user']),
+            models.Index(fields=['user']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.name} - {self.programme.title}"
+
+
+# =====================================================
+# Content Notification Model (Coming Soon)
+# =====================================================
+
+class ContentNotification(models.Model):
+    """Notifications pour les contenus 'Coming Soon'"""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    content = models.ForeignKey(
+        "Content",
+        on_delete=models.CASCADE,
+        related_name="notifications"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="content_notifications"
+    )
+    
+    # Notification status
+    is_notified = models.BooleanField(
+        default=False,
+        help_text="Si l'utilisateur a été notifié de la publication"
+    )
+    
+    # Timestamps
+    subscribed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = [['content', 'user']]
+        ordering = ['-subscribed_at']
+        indexes = [
+            models.Index(fields=['content', 'is_notified']),
+            models.Index(fields=['user', 'is_notified']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.name} → {self.content.title}"
+
+
+# =====================================================
+# Programme Notification Model
+# =====================================================
+
+class ProgrammeNotification(models.Model):
+    """
+    Subscription aux notifications pour les programmes Coming Soon
+    Utilisé quand un utilisateur veut être notifié du début d'un programme auquel il a adhéré
+    """
+    
+    programme = models.ForeignKey(
+        "Programme",
+        on_delete=models.CASCADE,
+        related_name="notifications"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="programme_notifications"
+    )
+    
+    # Notification status
+    is_notified = models.BooleanField(
+        default=False,
+        help_text="Si l'utilisateur a été notifié du démarrage"
+    )
+    
+    # Timestamps
+    subscribed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = [['programme', 'user']]
+        ordering = ['-subscribed_at']
+        indexes = [
+            models.Index(fields=['programme', 'is_notified']),
+            models.Index(fields=['user', 'is_notified']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.name} → {self.programme.title} (start: {self.programme.start_date})"
+
+
+# =====================================================
+# Programme Content Notification Model
+# =====================================================
+
+class ProgrammeContentNotification(models.Model):
+    """
+    Notifications quand du CONTENU est ajouté/modifié dans un programme
+    Les membres du programme sont notifiés de chaque nouveau contenu
+    Permet plusieurs notifications sur le même contenu (via différents contenus)
+    """
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    programme = models.ForeignKey(
+        "Programme",
+        on_delete=models.CASCADE,
+        related_name="content_notifications"
+    )
+    content = models.ForeignKey(
+        "Content",
+        on_delete=models.CASCADE,
+        related_name="programme_notifications"
+    )
+    user = models.ForeignKey(
+        "User",
+        on_delete=models.CASCADE,
+        related_name="programme_content_notifications"
+    )
+    
+    # Notification status
+    is_notified = models.BooleanField(
+        default=False,
+        help_text="Si l'utilisateur a été notifié"
+    )
+    is_read = models.BooleanField(
+        default=False,
+        help_text="Si l'utilisateur a lu la notification"
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        # Allow multiple notifications for same content (added/modified at different times)
+        unique_together = [['programme', 'content', 'user', 'created_at']]
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['programme', 'user', 'is_notified']),
+            models.Index(fields=['programme', 'is_notified']),
+            models.Index(fields=['user', 'is_read']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.name} → {self.programme.title} - {self.content.title}"
+
+

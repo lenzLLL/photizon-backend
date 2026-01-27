@@ -274,3 +274,242 @@ def remove_member_from_custom_room(request, room_id):
         {"message": f"Removed {len(user_ids)} members"},
         status=status.HTTP_200_OK
     )
+
+
+# =====================================================
+# Programme Chat Endpoints
+# =====================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticatedUser])
+def create_programme_chat(request, church_id, programme_id):
+    """
+    Créer un chat pour un programme
+    Body: {
+        "name": "string (optionnel)"
+    }
+    """
+    from api.models import Programme
+    from api.permissions import is_church_admin
+    
+    try:
+        church = Church.objects.get(id=church_id)
+    except Church.DoesNotExist:
+        return Response(
+            {"error": "Église non trouvée"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        programme = Programme.objects.get(id=programme_id, church=church)
+    except Programme.DoesNotExist:
+        return Response(
+            {"error": "Programme non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier les permissions
+    if not is_church_admin(request.user, church) and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous devez être administrateur de cette église"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Vérifier qu'un chat n'existe pas déjà pour ce programme
+    existing = ChatRoom.objects.filter(programme=programme, room_type='PROGRAMME').first()
+    if existing:
+        return Response(
+            {"error": "Un chat existe déjà pour ce programme"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    name = request.data.get('name') or f"Chat - {programme.title}"
+    
+    chat_room = ChatRoom.objects.create(
+        church=church,
+        programme=programme,
+        room_type='PROGRAMME',
+        name=name,
+        created_by=request.user
+    )
+    
+    serializer = ChatRoomSerializer(chat_room)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
+def get_programme_chat(request, church_id, programme_id):
+    """
+    Récupérer le chat d'un programme
+    """
+    from api.models import Programme
+    
+    try:
+        church = Church.objects.get(id=church_id)
+    except Church.DoesNotExist:
+        return Response(
+            {"error": "Église non trouvée"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        programme = Programme.objects.get(id=programme_id, church=church)
+    except Programme.DoesNotExist:
+        return Response(
+            {"error": "Programme non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que l'utilisateur est membre
+    if request.user.current_church_id != church.id and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous devez être membre de cette église"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    chat_room = ChatRoom.objects.filter(
+        programme=programme,
+        room_type='PROGRAMME'
+    ).first()
+    
+    if not chat_room:
+        return Response(
+            {"error": "Aucun chat pour ce programme"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    serializer = ChatRoomSerializer(chat_room)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticatedUser])
+def send_programme_message(request, church_id, programme_id):
+    """
+    Envoyer un message dans le chat du programme
+    Body: {
+        "content": "string"
+    }
+    """
+    from api.models import Programme
+    
+    try:
+        church = Church.objects.get(id=church_id)
+    except Church.DoesNotExist:
+        return Response(
+            {"error": "Église non trouvée"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        programme = Programme.objects.get(id=programme_id, church=church)
+    except Programme.DoesNotExist:
+        return Response(
+            {"error": "Programme non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que l'utilisateur est membre
+    if request.user.current_church_id != church.id and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous devez être membre de cette église"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    chat_room = ChatRoom.objects.filter(
+        programme=programme,
+        room_type='PROGRAMME'
+    ).first()
+    
+    if not chat_room:
+        return Response(
+            {"error": "Aucun chat pour ce programme"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    content = request.data.get('content')
+    if not content:
+        return Response(
+            {"error": "content requis"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    message = ChatMessage.objects.create(
+        room=chat_room,
+        user=request.user,
+        content=content
+    )
+    
+    serializer = ChatMessageSerializer(message)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticatedUser])
+def get_programme_messages(request, church_id, programme_id):
+    """
+    Récupérer les messages du chat d'un programme
+    Query params: limit, offset
+    """
+    from api.models import Programme
+    
+    try:
+        church = Church.objects.get(id=church_id)
+    except Church.DoesNotExist:
+        return Response(
+            {"error": "Église non trouvée"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    try:
+        programme = Programme.objects.get(id=programme_id, church=church)
+    except Programme.DoesNotExist:
+        return Response(
+            {"error": "Programme non trouvé"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Vérifier que l'utilisateur est membre
+    if request.user.current_church_id != church.id and request.user.role != "SADMIN":
+        return Response(
+            {"error": "Vous devez être membre de cette église"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    chat_room = ChatRoom.objects.filter(
+        programme=programme,
+        room_type='PROGRAMME'
+    ).first()
+    
+    if not chat_room:
+        return Response(
+            {"error": "Aucun chat pour ce programme"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    messages = ChatMessage.objects.filter(room=chat_room).select_related(
+        'user'
+    ).order_by('-created_at')
+    
+    # Pagination
+    try:
+        limit = int(request.query_params.get('limit', 20))
+        offset = int(request.query_params.get('offset', 0))
+    except ValueError:
+        limit = 20
+        offset = 0
+    
+    limit = min(limit, 100)
+    total_count = messages.count()
+    paginated_messages = messages[offset:offset + limit]
+    
+    serializer = ChatMessageSerializer(paginated_messages, many=True)
+    
+    return Response({
+        "count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < total_count else None,
+        "results": serializer.data
+    })
