@@ -436,6 +436,52 @@ class ChurchAdmin(models.Model):
     def __str__(self):
         return f"{self.user.phone_number} @ {self.church.title} ({self.role})"
 
+class SubscriptionPlan(models.Model):
+    """Plans de souscription configurables dans l'admin"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    name = models.CharField(max_length=100, unique=True, help_text="Nom du plan (ex: FREE, STARTER, PRO)")
+    display_name = models.CharField(max_length=100, help_text="Nom d'affichage (ex: Gratuit, Démarrage, Pro)")
+
+    # Prix et devise
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0, help_text="Prix du plan")
+    currency = models.CharField(max_length=10, default="XAF")
+
+    # Validité
+    duration_days = models.PositiveIntegerField(default=30, help_text="Durée de validité en jours")
+
+    # Limites et fonctionnalités
+    max_members = models.PositiveIntegerField(null=True, blank=True, help_text="Nombre maximum de membres (null = illimité)")
+    max_contents = models.PositiveIntegerField(null=True, blank=True, help_text="Nombre maximum de contenus (null = illimité)")
+    max_storage_gb = models.PositiveIntegerField(null=True, blank=True, help_text="Stockage maximum en GB (null = illimité)")
+
+    # Fonctionnalités booléennes
+    has_chat = models.BooleanField(default=True, help_text="Accès au chat")
+    has_programmes = models.BooleanField(default=True, help_text="Accès aux programmes")
+    has_analytics = models.BooleanField(default=False, help_text="Accès aux statistiques avancées")
+    has_custom_branding = models.BooleanField(default=False, help_text="Personnalisation avancée")
+
+    # Description et metadata
+    description = models.TextField(blank=True, help_text="Description du plan")
+    features = models.JSONField(default=list, blank=True, help_text="Liste des fonctionnalités")
+
+    # Statut
+    is_active = models.BooleanField(default=True, help_text="Plan disponible à l'achat")
+
+    # Ordre d'affichage
+    order = models.PositiveIntegerField(default=0, help_text="Ordre d'affichage")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'price']
+        verbose_name = "Plans"
+        verbose_name_plural = "Plans"
+
+    def __str__(self):
+        return f"{self.display_name} ({self.price} {self.currency})"
+
 class Subscription(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     PLAN_CHOICES = [
@@ -446,16 +492,49 @@ class Subscription(models.Model):
     ]
 
     church = models.OneToOneField("Church", on_delete=models.CASCADE, related_name="subscription")
+
+    # Nouveau: Plan configurable (prioritaire si défini)
+    subscription_plan = models.ForeignKey(
+        "SubscriptionPlan",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subscriptions",
+        help_text="Plans"
+    )
+
+    # Ancien: Plan hardcodé (pour compatibilité arrière)
     plan = models.CharField(max_length=30, choices=PLAN_CHOICES, default="FREE")
+
     started_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+
     # gateway data
     gateway = models.CharField(max_length=50, blank=True, null=True)  # e.g. stripe, mobilemoney
     gateway_subscription_id = models.CharField(max_length=200, blank=True, null=True)
 
+    def get_plan_name(self):
+        """Retourne le nom du plan (subscription_plan en priorité)"""
+        if self.subscription_plan:
+            return self.subscription_plan.name
+        return self.plan
+
+    def get_plan_price(self):
+        """Retourne le prix du plan"""
+        if self.subscription_plan:
+            return self.subscription_plan.price
+        # Prix hardcodés pour compatibilité
+        PLAN_PRICES = {
+            "STARTER": 10000.00,
+            "PRO": 30000.00,
+            "PREMIUM": 50000.00,
+        }
+        return PLAN_PRICES.get(self.plan, 0)
+
     def __str__(self):
-        return f"{self.church.title} - {self.plan}"
+        plan_name = self.subscription_plan.display_name if self.subscription_plan else self.plan
+        return f"{self.church.title} - {plan_name}"
 
 # Extend Notification to hold channel info + send status
 class Notification(models.Model):
@@ -1665,5 +1744,293 @@ class ProgrammeContentNotification(models.Model):
     
     def __str__(self):
         return f"{self.user.name} → {self.programme.title} - {self.content.title}"
+
+
+# =====================================================
+# Service Configuration Model
+# =====================================================
+
+class ServiceConfiguration(models.Model):
+    """Configuration des services tiers (SMS, WhatsApp, FreeMoPay, etc.)"""
+
+    SERVICE_TYPE_CHOICES = [
+        ('maintenance', 'Mode Maintenance'),
+        ('whatsapp', 'WhatsApp API'),
+        ('nexaah_sms', 'Nexaah SMS'),
+        ('freemopay', 'FreeMoPay Payment'),
+        ('notification_preferences', 'Préférences de Notification'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Type de service
+    service_type = models.CharField(
+        max_length=50,
+        choices=SERVICE_TYPE_CHOICES,
+        unique=True,
+        db_index=True,
+        help_text="Type de service à configurer"
+    )
+
+    # Statut
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Activer/Désactiver le service"
+    )
+
+    # Configuration générique
+    config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Configuration additionnelle (JSON)"
+    )
+
+    # ============== Maintenance Mode ==============
+    maintenance_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Message affiché en mode maintenance"
+    )
+
+    # ============== WhatsApp Configuration ==============
+    whatsapp_api_token = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Token d'API Meta/Facebook"
+    )
+    whatsapp_phone_number_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="ID du numéro de téléphone WhatsApp"
+    )
+    whatsapp_api_version = models.CharField(
+        max_length=20,
+        default="v18.0",
+        blank=True,
+        null=True,
+        help_text="Version de l'API WhatsApp"
+    )
+    whatsapp_template_name = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Nom du template WhatsApp"
+    )
+    whatsapp_language = models.CharField(
+        max_length=10,
+        default="fr",
+        blank=True,
+        null=True,
+        help_text="Langue des messages WhatsApp"
+    )
+
+    # ============== Nexaah SMS Configuration ==============
+    nexaah_base_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="URL de base de l'API Nexaah"
+    )
+    nexaah_send_endpoint = models.CharField(
+        max_length=200,
+        default="/send",
+        blank=True,
+        null=True,
+        help_text="Endpoint pour envoyer les SMS"
+    )
+    nexaah_credits_endpoint = models.CharField(
+        max_length=200,
+        default="/credits",
+        blank=True,
+        null=True,
+        help_text="Endpoint pour vérifier les crédits"
+    )
+    nexaah_user = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Nom d'utilisateur Nexaah"
+    )
+    nexaah_password = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Mot de passe Nexaah"
+    )
+    nexaah_sender_id = models.CharField(
+        max_length=50,
+        default="Christlumen",
+        blank=True,
+        null=True,
+        help_text="ID de l'expéditeur SMS"
+    )
+
+    # ============== FreeMoPay Configuration ==============
+    freemopay_base_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="URL de base de l'API FreeMoPay"
+    )
+    freemopay_app_key = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Clé d'application FreeMoPay"
+    )
+    freemopay_secret_key = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Clé secrète FreeMoPay"
+    )
+    freemopay_callback_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="URL de callback pour les paiements"
+    )
+    freemopay_init_payment_timeout = models.PositiveIntegerField(
+        default=60,
+        help_text="Timeout pour l'initialisation du paiement (secondes)"
+    )
+    freemopay_status_check_timeout = models.PositiveIntegerField(
+        default=30,
+        help_text="Timeout pour la vérification du statut (secondes)"
+    )
+    freemopay_token_timeout = models.PositiveIntegerField(
+        default=60,
+        help_text="Timeout pour l'obtention du token (secondes)"
+    )
+    freemopay_token_cache_duration = models.PositiveIntegerField(
+        default=3600,
+        help_text="Durée de cache du token (secondes)"
+    )
+    freemopay_max_retries = models.PositiveIntegerField(
+        default=3,
+        help_text="Nombre maximum de tentatives"
+    )
+    freemopay_retry_delay = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        default=1.0,
+        help_text="Délai entre les tentatives (secondes)"
+    )
+
+    # ============== Notification Preferences ==============
+    default_notification_channel = models.CharField(
+        max_length=20,
+        choices=[
+            ('whatsapp', 'WhatsApp'),
+            ('sms', 'SMS'),
+            ('email', 'Email'),
+        ],
+        default='whatsapp',
+        blank=True,
+        null=True,
+        help_text="Canal de notification par défaut"
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['service_type']
+        verbose_name = "Configuration de Service"
+        verbose_name_plural = "Configurations"
+        indexes = [
+            models.Index(fields=['service_type']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_service_type_display()} ({'Actif' if self.is_active else 'Inactif'})"
+
+    @classmethod
+    def get_config(cls, service_type):
+        """Récupère la configuration d'un service"""
+        try:
+            return cls.objects.get(service_type=service_type)
+        except cls.DoesNotExist:
+            return None
+
+    @classmethod
+    def get_maintenance_config(cls):
+        """Récupère la configuration du mode maintenance"""
+        return cls.get_config('maintenance')
+
+    @classmethod
+    def get_whatsapp_config(cls):
+        """Récupère la configuration WhatsApp"""
+        return cls.get_config('whatsapp')
+
+    @classmethod
+    def get_nexaah_config(cls):
+        """Récupère la configuration Nexaah SMS"""
+        return cls.get_config('nexaah_sms')
+
+    @classmethod
+    def get_freemopay_config(cls):
+        """Récupère la configuration FreeMoPay"""
+        return cls.get_config('freemopay')
+
+    @classmethod
+    def is_maintenance_mode(cls):
+        """Vérifie si le mode maintenance est activé"""
+        config = cls.get_maintenance_config()
+        return config.is_active if config else False
+
+    def validate_whatsapp_config(self):
+        """Valide la configuration WhatsApp"""
+        errors = []
+        if not self.whatsapp_api_token:
+            errors.append("WhatsApp API Token est requis")
+        if not self.whatsapp_phone_number_id:
+            errors.append("WhatsApp Phone Number ID est requis")
+        if not self.whatsapp_template_name:
+            errors.append("WhatsApp Template Name est requis")
+        return errors
+
+    def validate_nexaah_config(self):
+        """Valide la configuration Nexaah SMS"""
+        errors = []
+        if not self.nexaah_base_url:
+            errors.append("Nexaah Base URL est requis")
+        if not self.nexaah_user:
+            errors.append("Nexaah User est requis")
+        if not self.nexaah_password:
+            errors.append("Nexaah Password est requis")
+        if not self.nexaah_sender_id:
+            errors.append("Nexaah Sender ID est requis")
+        return errors
+
+    def validate_freemopay_config(self):
+        """Valide la configuration FreeMoPay"""
+        errors = []
+        if not self.freemopay_app_key:
+            errors.append("FreeMoPay App Key est requis")
+        if not self.freemopay_secret_key:
+            errors.append("FreeMoPay Secret Key est requis")
+        if not self.freemopay_callback_url:
+            errors.append("FreeMoPay Callback URL est requis")
+        return errors
+
+    def is_configured(self):
+        """Vérifie si le service est correctement configuré"""
+        if not self.is_active:
+            return False
+
+        errors = []
+        if self.service_type == 'whatsapp':
+            errors = self.validate_whatsapp_config()
+        elif self.service_type == 'nexaah_sms':
+            errors = self.validate_nexaah_config()
+        elif self.service_type == 'freemopay':
+            errors = self.validate_freemopay_config()
+
+        return len(errors) == 0
 
 

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation, Receipt, ChatMessage, ChatRoom, Testimony, ChurchCollaboration, TestimonyLike, Programme, ProgrammeMember, ContentNotification, ProgrammeContentNotification
+from api.models import BookOrder, Comment, Content, Donation, DonationCategory,Tag, ContentLike, ContentView, Playlist, PlaylistItem, User,Church, Subscription, SubscriptionPlan, ChurchAdmin,Commission,ChurchCommission,Category, TicketType, Ticket, TicketReservation, Receipt, ChatMessage, ChatRoom, Testimony, ChurchCollaboration, TestimonyLike, Programme, ProgrammeMember, ContentNotification, ProgrammeContentNotification
 from django.utils.text import slugify
 
 class UserSerializer(serializers.ModelSerializer):
@@ -58,11 +58,11 @@ class ChurchAdminSerializer(serializers.ModelSerializer):
         model = ChurchAdmin
         fields = "__all__"
 
-class SubscriptionSerializer(serializers.ModelSerializer):
+class SubscriptionPlanSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Subscription
+        model = SubscriptionPlan
         fields = "__all__"
-        read_only_fields = ["started_at"]
+        read_only_fields = ["created_at", "updated_at"]
 
 class ChurchRoleSerializer(serializers.ModelSerializer):
     church = serializers.SerializerMethodField()
@@ -345,11 +345,15 @@ class PlaylistItemSerializer(serializers.ModelSerializer):
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     church = serializers.SerializerMethodField()
+    subscription_plan_details = SubscriptionPlanSerializer(source='subscription_plan', read_only=True)
+    plan_name = serializers.SerializerMethodField()
+    plan_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Subscription
         fields = [
-            "id", "church", "plan", "started_at", "expires_at",
+            "id", "church", "plan", "subscription_plan", "subscription_plan_details",
+            "plan_name", "plan_price", "started_at", "expires_at",
             "is_active", "gateway", "gateway_subscription_id"
         ]
 
@@ -359,6 +363,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "title": obj.church.title,
             "code": obj.church.code
         }
+
+    def get_plan_name(self, obj):
+        return obj.get_plan_name()
+
+    def get_plan_price(self, obj):
+        return obj.get_plan_price()
 
 class PlaylistItemSContenterializer(serializers.ModelSerializer):
     content = ContentDetailSerializer()

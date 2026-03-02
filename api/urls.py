@@ -8,7 +8,7 @@ from api.views.programmes.programmes_view import (
     get_programme_content, programme_stats_for_church, join_programme, leave_programme,
     get_programme_members, get_programme_content_notifications, mark_programme_notification_as_read
 )
-from .views.auth.auth_views import change_subscription_plan, check_subscription_status, delete_subscription, get_church_subscription, list_subscriptions, renew_subscription, send_otp_view, toggle_subscription_status, update_subscription, verify_otp_view
+from .views.auth.auth_views import change_subscription_plan, check_subscription_status, delete_subscription, get_church_subscription, get_subscription_plan, list_subscription_plans, list_subscriptions, renew_subscription, send_otp_view, toggle_subscription_status, update_subscription, verify_otp_view
 from .views.crud.crud_views import churches_metrics,create_subchurch_view, deny_user,filter_church_members,get_current_user, join_church, leave_church, leave_commission, unban_user,update_church_by_owner,list_owners,list_users,delete_church,update_church,delete_self,update_self,delete_self,list_churches,create_church_view,list_my_churches,verify_church_view,add_church_admin,list_sub_churches
 from .views.crud.receipt_views import ReceiptViewSet, create_receipt, get_receipt, update_receipt, delete_receipt, list_all_receipts
 from .views.chat.chat_views import (
@@ -138,6 +138,8 @@ urlpatterns = [
     path("subscription/<str:church_id>/toggle/", toggle_subscription_status),
     path("subscription/<str:church_id>/renew/", renew_subscription),
     path("subscriptions/", list_subscriptions),
+    path("subscription-plans/", list_subscription_plans),
+    path("subscription-plans/<str:plan_id>/", get_subscription_plan),
     path("donation-categories/list/", list_categories_d),
     path("donation-categories/create/", create_category_d),
     path("donation-categories/<str:category_id>/", retrieve_category_d),
