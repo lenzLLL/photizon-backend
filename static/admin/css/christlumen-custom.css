@@ -1,0 +1,1275 @@
+/*
+ * Christlumen Admin Panel - Dark Theme Custom Styles
+ * Elegant Dark Design with Golden Accents
+ */
+
+:root {
+    --christlumen-gold: #f59e0b;
+    --christlumen-gold-light: #fbbf24;
+    --christlumen-gold-dark: #d97706;
+    --christlumen-orange: #fb923c;
+    --christlumen-yellow: #fde047;
+    --christlumen-bg-dark: #1a1a1a;
+    --christlumen-bg-darker: #0f0f0f;
+    --christlumen-bg-card: #2a2a2a;
+    --christlumen-text: #f5f5f5;
+    --christlumen-text-muted: #a0a0a0;
+    --christlumen-border: #3a3a3a;
+    --christlumen-gradient: linear-gradient(135deg, #f59e0b 0%, #fb923c 100%);
+    --christlumen-gradient-dark: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+}
+
+/* Global Dark Theme */
+body, .wrapper {
+    background: var(--christlumen-bg-dark) !important;
+    color: var(--christlumen-text) !important;
+}
+
+/* Brand Logo Styling - Golden Theme */
+.brand-link {
+    background: var(--christlumen-bg-darker) !important;
+    border-bottom: 3px solid var(--christlumen-gold) !important;
+    padding: 1rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-wrap: nowrap !important;
+}
+
+.brand-link .brand-image {
+    max-height: 45px !important;
+    width: auto !important;
+    margin: 0 0.5rem 0 0 !important;
+    flex-shrink: 0 !important;
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.3));
+}
+
+.brand-text {
+    color: var(--christlumen-gold-light) !important;
+    font-weight: 700 !important;
+    font-size: 1.3rem !important;
+    text-shadow: 2px 2px 8px rgba(245, 158, 11, 0.4);
+    letter-spacing: 0.5px;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Espacement après le brand (pour le user panel dans la sidebar) */
+.brand-link + .user-panel,
+.sidebar .user-panel {
+    margin-top: 1rem !important;
+    padding: 1rem !important;
+    border-top: 1px solid var(--christlumen-border) !important;
+}
+
+/* User panel styling dans la sidebar */
+.sidebar .user-panel .info {
+    color: var(--christlumen-text) !important;
+    padding-left: 0.5rem !important;
+}
+
+.sidebar .user-panel a {
+    color: var(--christlumen-gold-light) !important;
+    text-decoration: none !important;
+}
+
+.sidebar .user-panel a:hover {
+    color: var(--christlumen-gold) !important;
+}
+
+.sidebar .user-panel .image img {
+    border: 2px solid var(--christlumen-gold) !important;
+}
+
+/* Navbar - Dark with Golden Accents */
+.main-header.navbar {
+    background: var(--christlumen-bg-darker) !important;
+    border-bottom: 2px solid var(--christlumen-gold) !important;
+    box-shadow: 0 2px 10px rgba(245, 158, 11, 0.1);
+    padding: 0.5rem 1rem !important;
+}
+
+/* Espacement entre le brand et les éléments de la navbar */
+.navbar-nav {
+    margin-left: auto !important;
+    padding-left: 1rem !important;
+}
+
+/* Espacement pour les items de navigation */
+.navbar-nav > .nav-item {
+    margin-left: 0.5rem !important;
+}
+
+.navbar-nav > .nav-item > .nav-link {
+    color: var(--christlumen-text) !important;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    padding: 0.5rem 1rem !important;
+}
+
+.navbar-nav > .nav-item > .nav-link:hover {
+    color: var(--christlumen-gold-light) !important;
+    transform: scale(1.05);
+}
+
+/* User info dans la navbar */
+.navbar-nav .user-panel {
+    padding: 0.5rem 1rem !important;
+    margin-left: 1rem !important;
+}
+
+.navbar-badge {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    font-weight: 600;
+}
+
+/* Sidebar - Elegant Dark */
+.main-sidebar {
+    background: var(--christlumen-bg-darker) !important;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.5);
+}
+
+.sidebar-dark-warning .nav-sidebar > .nav-item > .nav-link.active {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    border-left: 4px solid var(--christlumen-yellow) !important;
+    box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3);
+    font-weight: 600;
+}
+
+/* IMPORTANT: Texte noir pour les items actifs/sélectionnés */
+.nav-sidebar > .nav-item > .nav-link.active,
+.nav-sidebar > .nav-item > .nav-link.active p,
+.nav-sidebar > .nav-item > .nav-link.active span {
+    color: #1a1a1a !important;
+}
+
+.nav-sidebar .nav-link {
+    border-radius: 8px !important;
+    margin: 4px 12px !important;
+    transition: all 0.3s ease;
+    color: var(--christlumen-text) !important;
+}
+
+.nav-sidebar .nav-link:hover {
+    background: rgba(245, 158, 11, 0.15) !important;
+    transform: translateX(8px);
+    color: var(--christlumen-gold-light) !important;
+}
+
+.nav-sidebar .nav-link p {
+    font-weight: 500;
+    color: inherit;
+}
+
+/* Sidebar Icons - Golden */
+.nav-icon {
+    margin-right: 12px !important;
+    font-size: 1.1rem !important;
+    color: var(--christlumen-gold-light) !important;
+}
+
+.nav-sidebar > .nav-item > .nav-link.active .nav-icon {
+    color: #1a1a1a !important;
+}
+
+/* Content Area - Dark Background */
+.content-wrapper {
+    background: var(--christlumen-bg-dark) !important;
+    color: var(--christlumen-text) !important;
+}
+
+.content-header h1 {
+    color: var(--christlumen-gold-light) !important;
+    font-weight: 700;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Cards - Dark Elegant */
+.card, .info-box, .small-box {
+    background: var(--christlumen-bg-card) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4), 0 0 20px rgba(245, 158, 11, 0.05) !important;
+    border: 1px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover, .small-box:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.5), 0 0 30px rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Card Headers - Golden Gradient */
+.card-header {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    font-weight: 700 !important;
+    border-radius: 12px 12px 0 0 !important;
+    border-bottom: none !important;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.card-body {
+    background: var(--christlumen-bg-card) !important;
+    color: var(--christlumen-text) !important;
+}
+
+.card-footer {
+    background: var(--christlumen-bg-darker) !important;
+    border-top: 1px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text-muted);
+}
+
+/* Buttons - Golden Theme */
+.btn-warning, .btn-primary {
+    background: var(--christlumen-gradient) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.6rem 1.8rem !important;
+    font-weight: 600 !important;
+    color: #1a1a1a !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3) !important;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.btn-warning:hover, .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 15px rgba(245, 158, 11, 0.5) !important;
+    filter: brightness(1.1);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3) !important;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 10px rgba(239, 68, 68, 0.3) !important;
+}
+
+.btn-info {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+    border: none !important;
+    border-radius: 8px !important;
+}
+
+.btn-outline-light {
+    border: 2px solid var(--christlumen-gold-light) !important;
+    color: var(--christlumen-gold-light) !important;
+    border-radius: 8px !important;
+}
+
+.btn-outline-light:hover {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+/* Tables - Dark Theme */
+.table {
+    border-radius: 12px !important;
+    overflow: hidden;
+    background: var(--christlumen-bg-card) !important;
+    color: var(--christlumen-text) !important;
+}
+
+.table thead th {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+    border: none !important;
+}
+
+.table tbody tr {
+    background: var(--christlumen-bg-card) !important;
+    border-bottom: 1px solid var(--christlumen-border) !important;
+    transition: all 0.2s ease;
+}
+
+.table tbody tr:hover {
+    background: rgba(245, 158, 11, 0.1) !important;
+    transform: scale(1.01);
+}
+
+.table tbody td {
+    color: var(--christlumen-text) !important;
+    border-color: var(--christlumen-border) !important;
+}
+
+/* Forms - Dark Theme - UNIFORMISÉ TOTAL */
+
+/* RÈGLE ULTRA-GÉNÉRALE - Force TOUS les inputs à être dark */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]),
+textarea,
+select {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    border-radius: 8px !important;
+    color: var(--christlumen-text) !important;
+    padding: 0.5rem 0.75rem !important;
+    transition: all 0.3s ease !important;
+    font-size: 0.95rem !important;
+}
+
+/* Force pour les inputs dans les formulaires */
+form input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+form textarea,
+form select {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+}
+
+/* Force pour les inputs dans les fieldsets */
+fieldset input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+fieldset textarea,
+fieldset select {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+}
+
+/* Force pour tous les inputs avec classes Django */
+.form-row input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+.form-row textarea,
+.form-row select {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+}
+
+/* Tous les types d'inputs spécifiques */
+.form-control,
+.form-select,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"],
+input[type="url"],
+input[type="search"],
+input[type="tel"],
+input[type="color"],
+.vTextField,
+.vURLField,
+.vDateField,
+.vTimeField,
+.vIntegerField,
+.vPositiveIntegerField,
+.vBigIntegerField,
+.vCharField,
+.vEmailField,
+.vSlugField {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    border-radius: 8px !important;
+    color: var(--christlumen-text) !important;
+    padding: 0.5rem 0.75rem !important;
+    transition: all 0.3s ease !important;
+    font-size: 0.95rem !important;
+}
+
+/* Override pour les backgrounds blancs hérités */
+input[style*="background"],
+textarea[style*="background"],
+select[style*="background"] {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+}
+
+/* Checkboxes et Radio buttons */
+input[type="checkbox"],
+input[type="radio"] {
+    width: auto !important;
+    height: auto !important;
+    margin-right: 0.5rem !important;
+    cursor: pointer !important;
+    accent-color: var(--christlumen-gold) !important;
+}
+
+/* File inputs */
+input[type="file"] {
+    padding: 0.5rem !important;
+    background: var(--christlumen-bg-card) !important;
+    cursor: pointer !important;
+}
+
+input[type="file"]::file-selector-button {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    border: none !important;
+    padding: 0.5rem 1rem !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    margin-right: 0.75rem !important;
+}
+
+input[type="file"]::file-selector-button:hover {
+    filter: brightness(1.1) !important;
+}
+
+/* FORCE ABSOLUE - Tous les inputs dans le content-wrapper */
+.content-wrapper input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]),
+.content-wrapper textarea,
+.content-wrapper select,
+.content input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+.content textarea,
+.content select,
+main input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+main textarea,
+main select {
+    background-color: var(--christlumen-bg-darker) !important;
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+}
+
+/* Focus state - Uniforme pour tous */
+input:focus:not([type="checkbox"]):not([type="radio"]),
+textarea:focus,
+select:focus,
+.form-control:focus,
+.form-select:focus,
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="time"]:focus,
+input[type="datetime-local"]:focus,
+input[type="url"]:focus,
+input[type="search"]:focus,
+input[type="tel"]:focus,
+.vTextField:focus,
+.vURLField:focus,
+.vDateField:focus,
+.vTimeField:focus {
+    border-color: var(--christlumen-gold-light) !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2) !important;
+    background-color: var(--christlumen-bg-card) !important;
+    background: var(--christlumen-bg-card) !important;
+    outline: none !important;
+}
+
+/* Disabled state */
+input:disabled,
+textarea:disabled,
+select:disabled,
+.form-control:disabled,
+.form-select:disabled {
+    background: var(--christlumen-bg-darker) !important;
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+}
+
+/* Readonly state */
+input[readonly],
+textarea[readonly],
+.form-control[readonly] {
+    background: var(--christlumen-bg-card) !important;
+    border-color: var(--christlumen-border) !important;
+    opacity: 0.8 !important;
+}
+
+/* Placeholder */
+input::placeholder,
+textarea::placeholder,
+.form-control::placeholder {
+    color: var(--christlumen-text-muted) !important;
+    opacity: 0.7 !important;
+}
+
+/* Select avec flèche */
+select,
+.form-select {
+    background-image: linear-gradient(45deg, transparent 50%, var(--christlumen-gold-light) 50%),
+                      linear-gradient(135deg, var(--christlumen-gold-light) 50%, transparent 50%) !important;
+    background-position: calc(100% - 20px) calc(1em + 2px),
+                         calc(100% - 15px) calc(1em + 2px) !important;
+    background-size: 5px 5px, 5px 5px !important;
+    background-repeat: no-repeat !important;
+    padding-right: 2.5rem !important;
+    cursor: pointer !important;
+}
+
+select:focus,
+.form-select:focus {
+    background-image: linear-gradient(45deg, transparent 50%, var(--christlumen-gold) 50%),
+                      linear-gradient(135deg, var(--christlumen-gold) 50%, transparent 50%) !important;
+}
+
+/* Option dans les selects */
+select option,
+.form-select option {
+    background: var(--christlumen-bg-darker) !important;
+    color: var(--christlumen-text) !important;
+    padding: 0.5rem !important;
+}
+
+select option:checked {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+/* Textarea */
+textarea {
+    min-height: 100px !important;
+    resize: vertical !important;
+}
+
+/* Labels */
+label,
+.form-label {
+    color: var(--christlumen-text) !important;
+    font-weight: 500 !important;
+    margin-bottom: 0.5rem !important;
+    display: inline-block !important;
+}
+
+/* Required indicator */
+label.required::after,
+.form-label.required::after {
+    content: " *" !important;
+    color: var(--christlumen-gold) !important;
+    font-weight: 700 !important;
+}
+
+/* Help text */
+.help-text,
+.helptext,
+.form-text,
+small.form-text {
+    color: var(--christlumen-text-muted) !important;
+    font-size: 0.875rem !important;
+    margin-top: 0.25rem !important;
+    display: block !important;
+}
+
+/* Error messages */
+.errorlist,
+.error,
+.invalid-feedback {
+    color: #fee2e2 !important;
+    background: rgba(239, 68, 68, 0.2) !important;
+    padding: 0.5rem !important;
+    border-radius: 6px !important;
+    border-left: 3px solid #ef4444 !important;
+    margin-top: 0.5rem !important;
+}
+
+/* Success messages */
+.successlist,
+.success {
+    color: #d1fae5 !important;
+    background: rgba(16, 185, 129, 0.2) !important;
+    padding: 0.5rem !important;
+    border-radius: 6px !important;
+    border-left: 3px solid #10b981 !important;
+    margin-top: 0.5rem !important;
+}
+
+/* Input groups */
+.input-group {
+    display: flex !important;
+    align-items: stretch !important;
+}
+
+.input-group-text {
+    background: var(--christlumen-bg-card) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+    padding: 0.5rem 0.75rem !important;
+    border-radius: 8px !important;
+}
+
+.input-group > input,
+.input-group > select {
+    flex: 1 !important;
+}
+
+/* Django admin specific */
+.vLargeTextField,
+.vXMLLargeTextField {
+    background: var(--christlumen-bg-darker) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    color: var(--christlumen-text) !important;
+    border-radius: 8px !important;
+}
+
+/* Date/Time widgets */
+.datetimeshortcuts {
+    color: var(--christlumen-text) !important;
+}
+
+.datetimeshortcuts a {
+    color: var(--christlumen-gold-light) !important;
+}
+
+.datetimeshortcuts a:hover {
+    color: var(--christlumen-gold) !important;
+}
+
+/* Calendar widget */
+.calendarbox,
+.clockbox {
+    background: var(--christlumen-bg-card) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    border-radius: 8px !important;
+}
+
+.calendar caption,
+.calendarbox h2 {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+.calendar td,
+.calendar th {
+    background: var(--christlumen-bg-darker) !important;
+    color: var(--christlumen-text) !important;
+}
+
+.calendar td a {
+    color: var(--christlumen-gold-light) !important;
+}
+
+.calendar td a:hover,
+.calendar td.selected a {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+/* Info Boxes - Dark */
+.info-box {
+    background: var(--christlumen-bg-card) !important;
+    border-left: 4px solid var(--christlumen-gold) !important;
+}
+
+.info-box-icon {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    border-radius: 12px !important;
+}
+
+.info-box-text, .info-box-number {
+    color: var(--christlumen-text) !important;
+}
+
+.small-box {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+.small-box h3, .small-box p {
+    color: #1a1a1a !important;
+}
+
+.small-box .icon {
+    color: rgba(0, 0, 0, 0.15) !important;
+}
+
+.small-box:hover .icon {
+    color: rgba(0, 0, 0, 0.3) !important;
+}
+
+.small-box-footer {
+    background: rgba(0, 0, 0, 0.1) !important;
+    color: #1a1a1a !important;
+}
+
+/* Breadcrumb - Dark */
+.breadcrumb {
+    background: var(--christlumen-bg-card) !important;
+    border-radius: 8px !important;
+    padding: 0.75rem 1.5rem !important;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.breadcrumb-item {
+    color: var(--christlumen-text-muted) !important;
+}
+
+.breadcrumb-item.active {
+    color: var(--christlumen-gold-light) !important;
+    font-weight: 600;
+}
+
+.breadcrumb-item a {
+    color: var(--christlumen-text) !important;
+}
+
+.breadcrumb-item a:hover {
+    color: var(--christlumen-gold-light) !important;
+}
+
+/* Pagination - Dark */
+.pagination .page-link {
+    background: var(--christlumen-bg-card) !important;
+    border: 2px solid var(--christlumen-border) !important;
+    border-radius: 8px !important;
+    margin: 0 4px !important;
+    color: var(--christlumen-text) !important;
+    font-weight: 500;
+}
+
+.pagination .page-link:hover {
+    background: rgba(245, 158, 11, 0.2) !important;
+    border-color: var(--christlumen-gold) !important;
+    color: var(--christlumen-gold-light) !important;
+}
+
+.pagination .page-item.active .page-link {
+    background: var(--christlumen-gradient) !important;
+    border-color: transparent !important;
+    color: #1a1a1a !important;
+}
+
+/* Alerts - Dark Theme */
+.alert {
+    border-radius: 12px !important;
+    border: none !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3) !important;
+}
+
+.alert-success {
+    background: linear-gradient(135deg, #065f46 0%, #047857 100%) !important;
+    color: #d1fae5 !important;
+}
+
+.alert-info {
+    background: linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%) !important;
+    color: #dbeafe !important;
+}
+
+.alert-warning {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    font-weight: 600;
+}
+
+.alert-danger {
+    background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%) !important;
+    color: #fee2e2 !important;
+}
+
+/* Login Page - Dark */
+.login-box {
+    border-radius: 16px !important;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 50px rgba(245, 158, 11, 0.1) !important;
+}
+
+.login-logo {
+    font-size: 2.5rem !important;
+    font-weight: 700 !important;
+    color: var(--christlumen-gold-light) !important;
+    text-shadow: 2px 2px 8px rgba(245, 158, 11, 0.4);
+}
+
+.login-logo img {
+    filter: drop-shadow(0 0 20px rgba(245, 158, 11, 0.4));
+}
+
+.login-card-body {
+    background: var(--christlumen-bg-card) !important;
+    border-radius: 0 0 16px 16px !important;
+    color: var(--christlumen-text) !important;
+}
+
+.login-box-msg {
+    color: var(--christlumen-text-muted) !important;
+}
+
+/* Footer - Dark */
+.main-footer {
+    background: var(--christlumen-bg-darker) !important;
+    border-top: 2px solid var(--christlumen-gold) !important;
+    color: var(--christlumen-text) !important;
+    font-weight: 500;
+}
+
+/* Scrollbar - Golden */
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--christlumen-bg-darker);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--christlumen-gradient);
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--christlumen-gold-dark);
+}
+
+/* Success Messages - Golden */
+.messages .success, .messagelist .success {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    border-radius: 12px !important;
+    padding: 1rem 1.5rem !important;
+    box-shadow: 0 4px 10px rgba(245, 158, 11, 0.3) !important;
+    font-weight: 600;
+}
+
+/* Badge Styling - Dark */
+.badge {
+    border-radius: 6px !important;
+    padding: 0.4rem 0.8rem !important;
+    font-weight: 600 !important;
+}
+
+.badge-warning, .badge-primary {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+.badge-success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+}
+
+/* Action Buttons Container */
+.submit-row {
+    background: var(--christlumen-bg-card) !important;
+    border-top: 2px solid var(--christlumen-gold) !important;
+    padding: 1rem !important;
+}
+
+/* Links - Golden */
+a {
+    color: var(--christlumen-gold-light) !important;
+    transition: color 0.3s ease;
+}
+
+a:hover {
+    color: var(--christlumen-orange) !important;
+}
+
+/* Field Boxes */
+.fieldBox {
+    background: var(--christlumen-bg-card) !important;
+    border: 1px solid var(--christlumen-border) !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+}
+
+/* Module Headers */
+.module h2, .module caption {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+    font-weight: 700 !important;
+}
+
+/* Change List */
+#changelist {
+    background: var(--christlumen-bg-card) !important;
+    color: var(--christlumen-text) !important;
+}
+
+#changelist-filter {
+    background: var(--christlumen-bg-card) !important;
+    border-left: 2px solid var(--christlumen-gold) !important;
+}
+
+#changelist-filter h2 {
+    background: var(--christlumen-gradient) !important;
+    color: #1a1a1a !important;
+}
+
+#changelist-filter li {
+    color: var(--christlumen-text) !important;
+}
+
+#changelist-filter li.selected a {
+    color: var(--christlumen-gold-light) !important;
+    font-weight: 700;
+}
+
+/* Dashboard Stats */
+.dashboard-stats {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+/* Dropdown Menus */
+.dropdown-menu {
+    background: var(--christlumen-bg-card) !important;
+    border: 1px solid var(--christlumen-border) !important;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5) !important;
+}
+
+.dropdown-item {
+    color: var(--christlumen-text) !important;
+}
+
+.dropdown-item:hover {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: var(--christlumen-gold-light) !important;
+}
+
+/* Selected Rows */
+tr.selected, .selected {
+    background: rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Loading Animation */
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+.loading {
+    background: linear-gradient(90deg,
+        var(--christlumen-bg-card) 0%,
+        rgba(245, 158, 11, 0.1) 50%,
+        var(--christlumen-bg-card) 100%);
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite;
+}
+
+/* Animations */
+.fade-in {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Custom Christlumen Glow Effect */
+.christlumen-glow {
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.3),
+                0 0 40px rgba(245, 158, 11, 0.1) !important;
+}
+
+.brand-link:hover {
+    box-shadow: 0 0 30px rgba(245, 158, 11, 0.4) !important;
+}
+
+/* Improved Text Readability */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--christlumen-text) !important;
+}
+
+p, span, div {
+    color: var(--christlumen-text);
+}
+
+/* Status Indicators */
+.badge-success, .badge.bg-success {
+    background: #10b981 !important;
+    color: white !important;
+}
+
+.badge-danger, .badge.bg-danger {
+    background: #ef4444 !important;
+    color: white !important;
+}
+
+.badge-info, .badge.bg-info {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+/* ============================================
+   RESPONSIVE DESIGN - Mobile & Tablet
+   ============================================ */
+
+/* Mobile Phones (Portrait & Landscape) */
+@media (max-width: 576px) {
+    /* Brand Logo - Mobile */
+    .brand-link {
+        padding: 0.6rem !important;
+        flex-direction: row !important;
+    }
+
+    .brand-link .brand-image {
+        max-height: 32px !important;
+        margin: 0 0.3rem 0 0 !important;
+    }
+
+    .brand-text {
+        font-size: 0.95rem !important;
+        letter-spacing: 0.3px;
+    }
+
+    /* User panel spacing - Mobile */
+    .brand-link + .user-panel,
+    .sidebar .user-panel {
+        margin-top: 0.6rem !important;
+        padding: 0.6rem !important;
+    }
+
+    /* Navbar */
+    .main-header.navbar {
+        padding: 0.5rem 0.5rem !important;
+    }
+
+    .navbar-nav {
+        padding-left: 0.5rem !important;
+    }
+
+    .navbar-nav > .nav-item {
+        margin-left: 0.3rem !important;
+    }
+
+    .navbar-nav > .nav-item > .nav-link {
+        padding: 0.4rem 0.6rem !important;
+        font-size: 0.85rem !important;
+    }
+
+    .navbar-nav .user-panel {
+        padding: 0.4rem 0.6rem !important;
+        margin-left: 0.5rem !important;
+    }
+
+    /* Content Wrapper */
+    .content-wrapper {
+        padding: 0.5rem !important;
+    }
+
+    .content-header h1 {
+        font-size: 1.3rem !important;
+    }
+
+    /* Cards */
+    .card {
+        margin-bottom: 0.8rem !important;
+        border-radius: 8px !important;
+    }
+
+    .card-header {
+        padding: 0.6rem 0.8rem !important;
+        font-size: 0.9rem !important;
+    }
+
+    .card-body {
+        padding: 0.8rem !important;
+    }
+
+    /* Buttons */
+    .btn {
+        padding: 0.5rem 1rem !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* Tables */
+    .table {
+        font-size: 0.85rem !important;
+    }
+
+    .table thead th {
+        padding: 0.5rem !important;
+        font-size: 0.75rem !important;
+    }
+
+    .table tbody td {
+        padding: 0.5rem !important;
+    }
+
+    /* Forms */
+    .form-control, .form-select {
+        font-size: 0.9rem !important;
+        padding: 0.5rem 0.75rem !important;
+    }
+
+    label {
+        font-size: 0.9rem !important;
+    }
+
+    /* Sidebar Navigation */
+    .nav-sidebar .nav-link {
+        padding: 0.5rem 0.8rem !important;
+        margin: 3px 8px !important;
+        font-size: 0.9rem !important;
+    }
+
+    .nav-icon {
+        font-size: 1rem !important;
+        margin-right: 8px !important;
+    }
+
+    /* Breadcrumb */
+    .breadcrumb {
+        padding: 0.5rem 1rem !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* Info Boxes */
+    .info-box {
+        margin-bottom: 0.8rem !important;
+    }
+
+    .small-box {
+        margin-bottom: 0.8rem !important;
+    }
+
+    /* Pagination */
+    .pagination .page-link {
+        padding: 0.4rem 0.6rem !important;
+        font-size: 0.85rem !important;
+    }
+}
+
+/* Tablets (Portrait) */
+@media (min-width: 577px) and (max-width: 768px) {
+    .brand-link .brand-image {
+        max-height: 38px !important;
+    }
+
+    .brand-text {
+        font-size: 1.1rem !important;
+    }
+
+    .content-wrapper {
+        padding: 1rem !important;
+    }
+
+    .content-header h1 {
+        font-size: 1.5rem !important;
+    }
+
+    .card-header {
+        font-size: 0.95rem !important;
+    }
+
+    .nav-sidebar .nav-link {
+        font-size: 0.95rem !important;
+    }
+}
+
+/* Tablets (Landscape) & Small Desktops */
+@media (min-width: 769px) and (max-width: 992px) {
+    .brand-link .brand-image {
+        max-height: 42px !important;
+    }
+
+    .brand-text {
+        font-size: 1.2rem !important;
+    }
+}
+
+/* Small Sidebar on Mobile */
+@media (max-width: 992px) {
+    /* When sidebar is collapsed */
+    .sidebar-collapse .brand-text {
+        display: none !important;
+    }
+
+    .sidebar-collapse .brand-link .brand-image {
+        margin: 0 auto !important;
+    }
+
+    /* Reduce sidebar width on mobile */
+    .main-sidebar {
+        width: 220px !important;
+    }
+
+    .sidebar-mini.sidebar-collapse .main-sidebar {
+        width: 60px !important;
+    }
+}
+
+/* Extra Small Devices (Portrait phones, less than 375px) */
+@media (max-width: 374px) {
+    .brand-link .brand-image {
+        max-height: 28px !important;
+    }
+
+    .brand-text {
+        font-size: 0.85rem !important;
+    }
+
+    .navbar-nav > .nav-item > .nav-link {
+        font-size: 0.8rem !important;
+        padding: 0.4rem !important;
+    }
+
+    .card-header {
+        font-size: 0.85rem !important;
+    }
+}
+
+/* Landscape Orientation Fix */
+@media (max-height: 500px) and (orientation: landscape) {
+    .brand-link {
+        padding: 0.5rem !important;
+    }
+
+    .brand-link .brand-image {
+        max-height: 30px !important;
+    }
+
+    .brand-text {
+        font-size: 0.95rem !important;
+    }
+}
+
+/* Prevent text overflow on all screen sizes */
+.brand-link,
+.navbar-nav .nav-link,
+.nav-sidebar .nav-link {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Ensure proper stacking on mobile */
+@media (max-width: 768px) {
+    .content-header {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+
+    .content-header .breadcrumb {
+        margin-top: 0.5rem !important;
+    }
+}
+
+/* Fix for dropdown menus on mobile */
+@media (max-width: 576px) {
+    .dropdown-menu {
+        max-width: 90vw !important;
+        font-size: 0.9rem !important;
+    }
+
+    .dropdown-item {
+        padding: 0.5rem 1rem !important;
+    }
+}

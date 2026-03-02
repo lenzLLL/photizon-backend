@@ -6,8 +6,8 @@ from rest_framework import status
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework_simplejwt.tokens import RefreshToken
-from api.models import Church, Subscription, User, OTP,Notification, Payment
-from api.serializers import SubscriptionSerializer, UserSerializer
+from api.models import Church, Subscription, SubscriptionPlan, User, OTP,Notification, Payment
+from api.serializers import SubscriptionSerializer, SubscriptionPlanSerializer, UserSerializer
 from api.services.whatsapp import send_otp_whatsapp
 from api.permissions import IsAuthenticatedUser, IsSuperAdmin, is_church_admin
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
@@ -56,18 +56,18 @@ def verify_otp_view(request):
     if created:
         Notification.objects.create(
             user=user,
-            title="Bienvenue Sur Photizon",
-            eng_title="Welcome To Photizon",
-            message="Bienvenue sur Photizon ! Veuillez entrer le code de votre église pour accéder aux contenus de votre communauté et rester connecté avec votre famille d’église..",
-            eng_message="Welcome to Photizon! Please enter your church code to access your community’s content and stay connected with your church family.",
+            title="Bienvenue Sur MyChurch",
+            eng_title="Welcome To MyChurch",
+            message="Bienvenue sur MyChurch ! Veuillez entrer le code de votre église pour accéder aux contenus de votre communauté et rester connecté avec votre famille d'église..",
+            eng_message="Welcome to MyChurch! Please enter your church code to access your community's content and stay connected with your church family.",
             type="SUCCESS"
         )
         create_and_send_whatsapp_notification(
         user=user,
-        title_eng="Welcome to Photizon",
-        title="Bienvenue sur Photizon",
-        message="Bienvenue sur Photizon ! Veuillez entrer le code de votre église pour accéder aux contenus.",
-        message_eng="Welcome to Photizon! Please enter your church code to access your community’s content and stay connected with your church family.",
+        title_eng="Welcome to MyChurch",
+        title="Bienvenue sur MyChurch",
+        message="Bienvenue sur MyChurch ! Veuillez entrer le code de votre église pour accéder aux contenus.",
+        message_eng="Welcome to MyChurch! Please enter your church code to access your community's content and stay connected with your church family.",
         template_name="welcome_message",  # Nom du template WhatsApp que tu as créé sur Meta
         template_params=[user.phone_number]  # Paramètres dynamiques si nécessaire
         )
@@ -341,3 +341,17 @@ def check_subscription_status(request, church_id):
 def list_subscriptions(request):
     qs = Subscription.objects.select_related("church").order_by("-started_at")
     return Response(SubscriptionSerializer(qs, many=True).data)
+
+@api_view(["GET"])
+@authentication_classes([])
+def list_subscription_plans(request):
+    """Liste tous les plans de souscription actifs (accessible sans authentification)"""
+    qs = SubscriptionPlan.objects.filter(is_active=True).order_by("order", "price")
+    return Response(SubscriptionPlanSerializer(qs, many=True).data)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedUser])
+def get_subscription_plan(request, plan_id):
+    """Récupère les détails d'un plan de souscription"""
+    plan = get_object_or_404(SubscriptionPlan, id=plan_id)
+    return Response(SubscriptionPlanSerializer(plan).data)

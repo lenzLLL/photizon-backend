@@ -1,7 +1,7 @@
 import os
 import sys
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'photizon.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mychurch.settings')
 import django
 
 django.setup()
